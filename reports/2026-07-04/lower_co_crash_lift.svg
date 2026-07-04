@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="830" height="820" viewBox="0 0 830 820">
 <style>text{font-family:Arial,Microsoft YaHei,sans-serif;font-size:10px;fill:#222}.title{font-size:18px;font-weight:700}.axis{font-size:10px}.celltext{font-size:8px;fill:#111}</style>
 <rect x="0" y="0" width="830" height="820" fill="#ffffff"/>
-<text x="20" y="32" class="title">Co-crash lift vs independence</text>
+<text x="20" y="32" class="title">Lower-tail co-crash lift vs independence</text>
 <text x="195.5" y="142" class="axis" transform="rotate(-45 195.5,142)">US_INTERNET</text>
 <text x="172" y="169.5" class="axis" text-anchor="end">US_INTERNET</text>
 <text x="226.5" y="142" class="axis" transform="rotate(-45 226.5,142)">US_SEMICONDUCTOR</text>
