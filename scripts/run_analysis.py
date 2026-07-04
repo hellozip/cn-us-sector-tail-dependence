@@ -65,12 +65,16 @@ def main() -> None:
     metrics = pairwise_tail_metrics(returns, assets, alpha=args.alpha, min_obs=args.min_obs)
 
     asset_ids = assets["id"].tolist()
-    tail_matrix = metric_matrix(metrics, asset_ids, "lower_tail_dependence", diagonal=1.0)
+    lower_tail_matrix = metric_matrix(metrics, asset_ids, "lower_tail_dependence", diagonal=1.0)
+    upper_tail_matrix = metric_matrix(metrics, asset_ids, "upper_tail_dependence", diagonal=1.0)
+    middle_pearson_matrix = metric_matrix(metrics, asset_ids, "middle_pearson", diagonal=1.0)
+    middle_spearman_matrix = metric_matrix(metrics, asset_ids, "middle_spearman", diagonal=1.0)
     pearson_matrix = metric_matrix(metrics, asset_ids, "pearson", diagonal=1.0)
     spearman_matrix = metric_matrix(metrics, asset_ids, "spearman", diagonal=1.0)
-    lift_matrix = metric_matrix(metrics, asset_ids, "co_crash_lift_vs_independence", diagonal=1.0)
+    lower_lift_matrix = metric_matrix(metrics, asset_ids, "lower_co_crash_lift_vs_independence", diagonal=1.0)
+    upper_lift_matrix = metric_matrix(metrics, asset_ids, "upper_co_rally_lift_vs_independence", diagonal=1.0)
     matched = matched_sector_metrics(metrics)
-    cvine_order, cvine_edges = cvine_order_from_matrix(tail_matrix)
+    cvine_order, cvine_edges = cvine_order_from_matrix(lower_tail_matrix)
 
     prices.to_csv(output_dir / "prices.csv", encoding="utf-8-sig")
     returns.to_csv(output_dir / "returns.csv", encoding="utf-8-sig")
@@ -80,16 +84,24 @@ def main() -> None:
     coverage.to_csv(output_dir / "asset_coverage.csv", index=False, encoding="utf-8-sig")
     metrics.to_csv(output_dir / f"pair_metrics_alpha_{args.alpha:.2f}.csv", index=False, encoding="utf-8-sig")
     matched.to_csv(output_dir / f"matched_sector_metrics_alpha_{args.alpha:.2f}.csv", index=False, encoding="utf-8-sig")
-    tail_matrix.to_csv(output_dir / f"lower_tail_dependence_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
-    lift_matrix.to_csv(output_dir / f"co_crash_lift_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    lower_tail_matrix.to_csv(output_dir / f"lower_tail_dependence_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    upper_tail_matrix.to_csv(output_dir / f"upper_tail_dependence_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    middle_pearson_matrix.to_csv(output_dir / f"middle_pearson_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    middle_spearman_matrix.to_csv(output_dir / f"middle_spearman_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    lower_lift_matrix.to_csv(output_dir / f"lower_co_crash_lift_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
+    upper_lift_matrix.to_csv(output_dir / f"upper_co_rally_lift_matrix_alpha_{args.alpha:.2f}.csv", encoding="utf-8-sig")
     pearson_matrix.to_csv(output_dir / "pearson_matrix.csv", encoding="utf-8-sig")
     spearman_matrix.to_csv(output_dir / "spearman_matrix.csv", encoding="utf-8-sig")
     cvine_order.to_csv(output_dir / "cvine_empirical_order.csv", index=False, encoding="utf-8-sig")
     cvine_edges.to_csv(output_dir / "cvine_empirical_edges.csv", index=False, encoding="utf-8-sig")
 
     heatmaps = [
-        (tail_matrix, "lower_tail_dependence.svg", f"Lower-tail dependence, alpha={args.alpha:.0%}", False, ".2f"),
-        (lift_matrix, "co_crash_lift.svg", "Co-crash lift vs independence", False, ".1f"),
+        (lower_tail_matrix, "lower_tail_dependence.svg", f"Lower-tail dependence, alpha={args.alpha:.0%}", False, ".2f"),
+        (upper_tail_matrix, "upper_tail_dependence.svg", f"Upper-tail dependence, alpha={args.alpha:.0%}", False, ".2f"),
+        (middle_pearson_matrix, "middle_pearson_correlation.svg", f"Middle Pearson correlation, alpha={args.alpha:.0%}", True, ".2f"),
+        (middle_spearman_matrix, "middle_spearman_correlation.svg", f"Middle Spearman correlation, alpha={args.alpha:.0%}", True, ".2f"),
+        (lower_lift_matrix, "lower_co_crash_lift.svg", "Lower-tail co-crash lift vs independence", False, ".1f"),
+        (upper_lift_matrix, "upper_co_rally_lift.svg", "Upper-tail co-rally lift vs independence", False, ".1f"),
         (pearson_matrix, "pearson_correlation.svg", "Pearson correlation", True, ".2f"),
         (spearman_matrix, "spearman_correlation.svg", "Spearman correlation", True, ".2f"),
     ]

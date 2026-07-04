@@ -32,7 +32,7 @@ def _diverging_color(value: float) -> str:
         return "#eeeeee"
     value = max(-1.0, min(1.0, float(value)))
     if value < 0:
-        return _blend("#2166ac", "#f7f7f7", (value + 1) / 1)
+        return _blend("#2166ac", "#f7f7f7", value + 1)
     return _blend("#f7f7f7", "#b2182b", value)
 
 
@@ -123,39 +123,71 @@ def write_html_report(
     heatmap_files: list[str],
 ) -> None:
     output_path = Path(output_path)
-    top_cols = [
+    lower_cols = [
         "left_id",
         "right_id",
         "observations",
         "pearson",
         "spearman",
         "lower_tail_dependence",
-        "co_crash_lift_vs_independence",
-        "right_given_left_tail",
-        "left_given_right_tail",
+        "lower_co_crash_lift_vs_independence",
+        "lower_right_given_left_tail",
+        "lower_left_given_right_tail",
+    ]
+    upper_cols = [
+        "left_id",
+        "right_id",
+        "observations",
+        "pearson",
+        "spearman",
+        "upper_tail_dependence",
+        "upper_co_rally_lift_vs_independence",
+        "upper_right_given_left_tail",
+        "upper_left_given_right_tail",
+    ]
+    middle_cols = [
+        "left_id",
+        "right_id",
+        "observations",
+        "middle_both_count",
+        "middle_pearson",
+        "middle_spearman",
+        "pearson",
+        "spearman",
     ]
     matched_cols = [
         "left_sector",
         "left_id",
         "right_id",
         "observations",
+        "lower_tail_dependence",
+        "upper_tail_dependence",
+        "middle_pearson",
+        "middle_spearman",
         "pearson",
         "spearman",
-        "lower_tail_dependence",
-        "co_crash_lift_vs_independence",
     ]
-    low_tail = metrics.loc[metrics["cross_market"]].sort_values("lower_tail_dependence", ascending=True)
+
+    lower_top = metrics.sort_values("lower_tail_dependence", ascending=False, na_position="last")
+    upper_top = metrics.sort_values("upper_tail_dependence", ascending=False, na_position="last")
+    middle_top = metrics.sort_values("middle_pearson", ascending=False, na_position="last")
+    lower_low_cross_market = metrics.loc[metrics["cross_market"]].sort_values(
+        "lower_tail_dependence", ascending=True, na_position="last"
+    )
+    upper_low_cross_market = metrics.loc[metrics["cross_market"]].sort_values(
+        "upper_tail_dependence", ascending=True, na_position="last"
+    )
 
     html = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>China-US Sector Tail Dependence Report</title>
+  <title>China-US Sector Dependence Report</title>
   <style>
     body {{ font-family: Arial, "Microsoft YaHei", sans-serif; margin: 32px; color: #17202a; line-height: 1.48; }}
     h1, h2 {{ margin: 24px 0 10px; }}
-    .note {{ color: #4d5b66; max-width: 980px; }}
+    .note {{ color: #4d5b66; max-width: 1040px; }}
     .data-table {{ border-collapse: collapse; font-size: 13px; margin: 12px 0 24px; }}
     .data-table th, .data-table td {{ border-bottom: 1px solid #dde3ea; padding: 6px 8px; text-align: right; }}
     .data-table th:first-child, .data-table td:first-child {{ text-align: left; }}
@@ -165,35 +197,47 @@ def write_html_report(
   </style>
 </head>
 <body>
-  <h1>中美板块下尾相关性报告</h1>
-  <p class="note">样本区间：<code>{escape(start)}</code> 至 <code>{escape(end)}</code>。下尾阈值 alpha = <code>{alpha:.2%}</code>。
-  核心指标 <code>lower_tail_dependence = P(U_i&lt;=alpha, U_j&lt;=alpha) / alpha</code>，数值越高，表示两个板块在极端下跌日共同下跌的经验概率越高。</p>
+  <h1>China-US Sector Dependence Report</h1>
+  <p class="note">Sample window: <code>{escape(start)}</code> to <code>{escape(end)}</code>. Tail alpha = <code>{alpha:.2%}</code>.</p>
+  <p class="note">
+    Lower tail: <code>P(U_i&lt;=alpha, U_j&lt;=alpha) / alpha</code>.
+    Upper tail: <code>P(U_i&gt;=1-alpha, U_j&gt;=1-alpha) / alpha</code>.
+    Middle correlation: Pearson/Spearman correlation conditional on both assets staying inside <code>(alpha, 1-alpha)</code>.
+  </p>
 
-  <h2>热力图</h2>
+  <h2>Heatmaps</h2>
   <div class="grid">
     {''.join(f'<div><img src="{escape(name)}" alt="{escape(name)}"></div>' for name in heatmap_files)}
   </div>
 
-  <h2>下尾共振最高的组合</h2>
-  {_table_html(metrics, top_cols, 25)}
+  <h2>Highest Lower-Tail Co-Crash Dependence</h2>
+  {_table_html(lower_top, lower_cols, 25)}
 
-  <h2>同板块中美对照</h2>
+  <h2>Highest Upper-Tail Co-Rally Dependence</h2>
+  {_table_html(upper_top, upper_cols, 25)}
+
+  <h2>Highest Middle-Market Correlation</h2>
+  {_table_html(middle_top, middle_cols, 25)}
+
+  <h2>Matched China-US Sectors</h2>
   {_table_html(matched, matched_cols, 20)}
 
-  <h2>跨市场低下尾相关候选</h2>
-  {_table_html(low_tail, top_cols, 20)}
+  <h2>Cross-Market Low Lower-Tail Candidates</h2>
+  {_table_html(lower_low_cross_market, lower_cols, 20)}
 
-  <h2>C-Vine 经验排序</h2>
-  <p class="note">这是基于下尾相关性矩阵的非参数 Vine 排序，用来判断哪个板块更像尾部风险中心节点；它不是完整的参数化 C-Vine Copula 拟合。</p>
+  <h2>Cross-Market Low Upper-Tail Candidates</h2>
+  {_table_html(upper_low_cross_market, upper_cols, 20)}
+
+  <h2>Lower-Tail Empirical C-Vine Order</h2>
+  <p class="note">This non-parametric ordering uses the lower-tail dependence matrix to identify assets that behave like co-crash hubs. It is not a full parameterized C-Vine Copula fit.</p>
   {_table_html(cvine_order, ["rank", "asset_id", "tail_dependence_sum"], 30)}
 
-  <h2>资产覆盖</h2>
+  <h2>Asset Coverage</h2>
   {_table_html(coverage, ["id", "ticker", "first_price_date", "last_price_date", "return_observations", "annualized_return", "annualized_volatility"], 30)}
 
-  <h2>代理标的</h2>
+  <h2>Asset Proxies</h2>
   {assets.to_html(index=False, escape=True, border=0, classes="data-table")}
 </body>
 </html>
 """
     output_path.write_text(html, encoding="utf-8")
-

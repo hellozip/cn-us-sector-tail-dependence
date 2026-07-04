@@ -97,40 +97,96 @@ def pairwise_tail_metrics(
         y = pair[right]
         ux = x.rank(method="average", pct=True)
         uy = y.rank(method="average", pct=True)
-        x_tail = ux <= alpha
-        y_tail = uy <= alpha
-        both_tail = x_tail & y_tail
-        either_tail = x_tail | y_tail
-        both_count = int(both_tail.sum())
-        both_prob = float(both_tail.mean())
-        x_tail_count = int(x_tail.sum())
-        y_tail_count = int(y_tail.sum())
-        tail_pair = pair.loc[either_tail]
+        x_lower_tail = ux <= alpha
+        y_lower_tail = uy <= alpha
+        both_lower_tail = x_lower_tail & y_lower_tail
+        either_lower_tail = x_lower_tail | y_lower_tail
+        lower_tail_pair = pair.loc[either_lower_tail]
+
+        upper_cutoff = 1.0 - alpha
+        x_upper_tail = ux >= upper_cutoff
+        y_upper_tail = uy >= upper_cutoff
+        both_upper_tail = x_upper_tail & y_upper_tail
+        either_upper_tail = x_upper_tail | y_upper_tail
+        upper_tail_pair = pair.loc[either_upper_tail]
+
+        x_middle = (ux > alpha) & (ux < upper_cutoff)
+        y_middle = (uy > alpha) & (uy < upper_cutoff)
+        both_middle = x_middle & y_middle
+        middle_pair = pair.loc[both_middle]
+
+        lower_both_count = int(both_lower_tail.sum())
+        lower_both_prob = float(both_lower_tail.mean())
+        x_lower_tail_count = int(x_lower_tail.sum())
+        y_lower_tail_count = int(y_lower_tail.sum())
+
+        upper_both_count = int(both_upper_tail.sum())
+        upper_both_prob = float(both_upper_tail.mean())
+        x_upper_tail_count = int(x_upper_tail.sum())
+        y_upper_tail_count = int(y_upper_tail.sum())
+        middle_count = int(both_middle.sum())
 
         row.update(
             {
                 "pearson": _corr(x, y, "pearson"),
                 "spearman": _corr(x, y, "spearman"),
-                "lower_tail_alpha": alpha,
-                "left_tail_count": x_tail_count,
-                "right_tail_count": y_tail_count,
-                "both_tail_count": both_count,
-                "both_tail_probability": both_prob,
-                "lower_tail_dependence": both_prob / alpha,
-                "co_crash_lift_vs_independence": both_prob / (alpha * alpha),
-                "right_given_left_tail": both_count / x_tail_count if x_tail_count else np.nan,
-                "left_given_right_tail": both_count / y_tail_count if y_tail_count else np.nan,
-                "tail_union_pearson": _corr(tail_pair[left], tail_pair[right], "pearson")
-                if tail_pair.shape[0] >= 10
+                "tail_alpha": alpha,
+                "lower_left_tail_count": x_lower_tail_count,
+                "lower_right_tail_count": y_lower_tail_count,
+                "lower_both_tail_count": lower_both_count,
+                "lower_both_tail_probability": lower_both_prob,
+                "lower_tail_dependence": lower_both_prob / alpha,
+                "lower_co_crash_lift_vs_independence": lower_both_prob / (alpha * alpha),
+                "lower_right_given_left_tail": lower_both_count / x_lower_tail_count
+                if x_lower_tail_count
                 else np.nan,
-                "avg_left_return_when_both_tail": float(x.loc[both_tail].mean()) if both_count else np.nan,
-                "avg_right_return_when_both_tail": float(y.loc[both_tail].mean()) if both_count else np.nan,
+                "lower_left_given_right_tail": lower_both_count / y_lower_tail_count
+                if y_lower_tail_count
+                else np.nan,
+                "lower_tail_union_pearson": _corr(lower_tail_pair[left], lower_tail_pair[right], "pearson")
+                if lower_tail_pair.shape[0] >= 10
+                else np.nan,
+                "lower_avg_left_return_when_both_tail": float(x.loc[both_lower_tail].mean())
+                if lower_both_count
+                else np.nan,
+                "lower_avg_right_return_when_both_tail": float(y.loc[both_lower_tail].mean())
+                if lower_both_count
+                else np.nan,
+                "upper_left_tail_count": x_upper_tail_count,
+                "upper_right_tail_count": y_upper_tail_count,
+                "upper_both_tail_count": upper_both_count,
+                "upper_both_tail_probability": upper_both_prob,
+                "upper_tail_dependence": upper_both_prob / alpha,
+                "upper_co_rally_lift_vs_independence": upper_both_prob / (alpha * alpha),
+                "upper_right_given_left_tail": upper_both_count / x_upper_tail_count
+                if x_upper_tail_count
+                else np.nan,
+                "upper_left_given_right_tail": upper_both_count / y_upper_tail_count
+                if y_upper_tail_count
+                else np.nan,
+                "upper_tail_union_pearson": _corr(upper_tail_pair[left], upper_tail_pair[right], "pearson")
+                if upper_tail_pair.shape[0] >= 10
+                else np.nan,
+                "upper_avg_left_return_when_both_tail": float(x.loc[both_upper_tail].mean())
+                if upper_both_count
+                else np.nan,
+                "upper_avg_right_return_when_both_tail": float(y.loc[both_upper_tail].mean())
+                if upper_both_count
+                else np.nan,
+                "middle_both_count": middle_count,
+                "middle_both_probability": float(both_middle.mean()),
+                "middle_pearson": _corr(middle_pair[left], middle_pair[right], "pearson")
+                if middle_count >= 10
+                else np.nan,
+                "middle_spearman": _corr(middle_pair[left], middle_pair[right], "spearman")
+                if middle_count >= 10
+                else np.nan,
             }
         )
         rows.append(row)
 
     return pd.DataFrame(rows).sort_values(
-        ["lower_tail_dependence", "co_crash_lift_vs_independence"], ascending=False, na_position="last"
+        ["lower_tail_dependence", "lower_co_crash_lift_vs_independence"], ascending=False, na_position="last"
     )
 
 
@@ -138,18 +194,33 @@ def _empty_metric_values() -> dict:
     return {
         "pearson": np.nan,
         "spearman": np.nan,
-        "lower_tail_alpha": np.nan,
-        "left_tail_count": np.nan,
-        "right_tail_count": np.nan,
-        "both_tail_count": np.nan,
-        "both_tail_probability": np.nan,
+        "tail_alpha": np.nan,
+        "lower_left_tail_count": np.nan,
+        "lower_right_tail_count": np.nan,
+        "lower_both_tail_count": np.nan,
+        "lower_both_tail_probability": np.nan,
         "lower_tail_dependence": np.nan,
-        "co_crash_lift_vs_independence": np.nan,
-        "right_given_left_tail": np.nan,
-        "left_given_right_tail": np.nan,
-        "tail_union_pearson": np.nan,
-        "avg_left_return_when_both_tail": np.nan,
-        "avg_right_return_when_both_tail": np.nan,
+        "lower_co_crash_lift_vs_independence": np.nan,
+        "lower_right_given_left_tail": np.nan,
+        "lower_left_given_right_tail": np.nan,
+        "lower_tail_union_pearson": np.nan,
+        "lower_avg_left_return_when_both_tail": np.nan,
+        "lower_avg_right_return_when_both_tail": np.nan,
+        "upper_left_tail_count": np.nan,
+        "upper_right_tail_count": np.nan,
+        "upper_both_tail_count": np.nan,
+        "upper_both_tail_probability": np.nan,
+        "upper_tail_dependence": np.nan,
+        "upper_co_rally_lift_vs_independence": np.nan,
+        "upper_right_given_left_tail": np.nan,
+        "upper_left_given_right_tail": np.nan,
+        "upper_tail_union_pearson": np.nan,
+        "upper_avg_left_return_when_both_tail": np.nan,
+        "upper_avg_right_return_when_both_tail": np.nan,
+        "middle_both_count": np.nan,
+        "middle_both_probability": np.nan,
+        "middle_pearson": np.nan,
+        "middle_spearman": np.nan,
     }
 
 
@@ -164,9 +235,9 @@ def metric_matrix(metrics: pd.DataFrame, asset_ids: list[str], metric: str, diag
     return matrix
 
 
-def matched_sector_metrics(metrics: pd.DataFrame) -> pd.DataFrame:
+def matched_sector_metrics(metrics: pd.DataFrame, sort_metric: str = "lower_tail_dependence") -> pd.DataFrame:
     matched = metrics.loc[metrics["same_sector"] & metrics["cross_market"]].copy()
-    return matched.sort_values("lower_tail_dependence", ascending=False, na_position="last")
+    return matched.sort_values(sort_metric, ascending=False, na_position="last")
 
 
 def cvine_order_from_matrix(matrix: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
