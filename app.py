@@ -573,6 +573,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
             arrow = f"↓{abs(rank_change)}"
         else:
             arrow = "→"
+        source = sources.get(asset_id, {})
         rows.append(
             {
                 **row,
@@ -581,9 +582,13 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
                 "rank_change": rank_change,
                 "rank_arrow": arrow,
                 "flow_direction": "流入" if (_safe_float(row.get("flow_amount")) or 0) >= 0 else "流出",
-                "flow_source": sources.get(asset_id, {}).get("flow_source") or sources.get(asset_id, {}).get("source") or "未注明",
-                "total_size_source": sources.get(asset_id, {}).get("total_size_source") or sources.get(asset_id, {}).get("size_source") or "未注明",
-                "currency": sources.get(asset_id, {}).get("currency") or "",
+                "flow_source": source.get("flow_source") or source.get("source") or "未注明",
+                "total_size_source": source.get("total_size_source") or source.get("size_source") or "未注明",
+                "source_url": source.get("source_url") or "",
+                "currency": source.get("currency") or "",
+                "board_codes": source.get("board_codes") or "",
+                "board_names": source.get("board_names") or "",
+                "source_notes": source.get("notes") or "",
             }
         )
 
@@ -603,7 +608,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         "available": True,
         "as_of_date": current_date.date().isoformat(),
         "previous_date": previous_date.date().isoformat() if previous_date is not None else None,
-        "method": "资金流金额来自 fund_flow_amount.csv 中接入的真实净流入/净流出来源；流入/流出占比 = 真实净流入/净流出金额 ÷ sector_total_size.csv 中的该板块总规模。正数代表真实净流入，负数代表真实净流出。不同市场和来源的币种、统计口径必须在 fund_flow_sources.csv 中注明。",
+        "method": "资金流金额来自 fund_flow_amount.csv 中接入的真实净流入/净流出来源；流入/流出占比 = 真实净流入/净流出金额 ÷ sector_total_size.csv 中的该板块总规模。当前中国侧可接入东方财富公开网页接口 f62 主力净流入，分母为 f20 总市值；美国侧仍需要 ETF 发行商、交易所或数据商提供真实 fund flow 文件，系统不会用 Yahoo 成交量或收益率伪造。",
         "total_inflow_amount": total_inflow,
         "total_outflow_amount": total_outflow,
         "net_flow_amount": total_inflow + total_outflow,
@@ -731,11 +736,21 @@ def _refresh_from_body(environ) -> dict:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=900)
+    flow_result = None
+    if result.returncode == 0:
+        flow_cmd = [
+            sys.executable,
+            str(ROOT / "scripts" / "fetch_real_fund_flows.py"),
+            "--output",
+            str(OUTPUT_DIR),
+        ]
+        flow_result = subprocess.run(flow_cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
     return {
         "ok": result.returncode == 0,
         "returncode": result.returncode,
-        "stdout": result.stdout[-4000:],
-        "stderr": result.stderr[-4000:],
+        "stdout": ((result.stdout or "") + ("\n" + flow_result.stdout if flow_result else ""))[-4000:],
+        "stderr": ((result.stderr or "") + ("\n" + flow_result.stderr if flow_result and flow_result.returncode != 0 else ""))[-4000:],
+        "fund_flow_returncode": flow_result.returncode if flow_result else None,
         "dashboard": _dashboard_payload(alpha=alpha) if result.returncode == 0 else None,
     }
 

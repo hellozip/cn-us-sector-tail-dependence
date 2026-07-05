@@ -376,6 +376,27 @@ td:first-child {
   text-align: left;
 }
 
+.source-cell {
+  min-width: 220px;
+  max-width: 320px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.45;
+}
+
+.source-cell a {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.source-cell span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 th {
   color: var(--muted);
   font-size: 11px;

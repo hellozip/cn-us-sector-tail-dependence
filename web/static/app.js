@@ -208,6 +208,16 @@ function renderFundFlow(fundFlow) {
     const returnClass = Number(row.latest_return || 0) >= 0 ? "flow-positive" : "flow-negative";
     const arrow = row.rank_arrow || "";
     const sourceText = [row.flow_source, row.total_size_source].filter(Boolean).join(" / ");
+    const compactSourceText = sourceText.includes("东方财富")
+      ? "东方财富 f62 主力净流入 / f20 总市值"
+      : sourceText;
+    const sourceDetails = [row.board_codes, row.board_names].filter(Boolean).join(" · ");
+    const sourceUrl = row.source_url ? escapeHtml(row.source_url) : "";
+    const sourceTitle = escapeHtml([sourceText, row.source_notes].filter(Boolean).join("；"));
+    const sourceMain = sourceUrl
+      ? `<a href="${sourceUrl}" target="_blank" rel="noopener noreferrer" title="${sourceTitle}">${escapeHtml(compactSourceText || "查看来源")}</a>`
+      : escapeHtml(compactSourceText || "未注明");
+    const sourceDetailHtml = sourceDetails ? `<span>${escapeHtml(sourceDetails)}</span>` : "";
     return `
       <tr>
         <td>${row.rank}</td>
@@ -218,7 +228,7 @@ function renderFundFlow(fundFlow) {
         <td class="${returnClass}">${fmtPct(row.latest_return)}</td>
         <td><span class="rank-arrow ${rankArrowClass(arrow)}">${escapeHtml(arrow)}</span></td>
         <td>${row.previous_rank ?? row.rank}</td>
-        <td>${escapeHtml(sourceText || "未注明")}</td>
+        <td class="source-cell">${sourceMain}${sourceDetailHtml}</td>
       </tr>
     `;
   }).join("");

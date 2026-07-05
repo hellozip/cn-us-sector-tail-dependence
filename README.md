@@ -155,6 +155,21 @@ id,flow_source,total_size_source,currency,notes
 US_SEMICONDUCTOR,数据商/ETF净申赎/券商资金流口径,ETF AUM或行业总市值来源,USD,说明统计口径和更新时间
 ```
 
+中国侧真实资金流可用东方财富公开板块资金流向抓取：
+
+```powershell
+python scripts/fetch_real_fund_flows.py
+```
+
+该脚本会读取 [config/eastmoney_flow_map.csv](config/eastmoney_flow_map.csv) 中的东方财富 BK 板块代码，直接请求东方财富公开网页接口，并生成：
+
+- `fund_flow_amount.csv`: `f62` 主力净流入，作为真实净流入/净流出金额。
+- `sector_total_size.csv`: `f20` 总市值，作为该板块总规模分母。
+- `fund_flow_sources.csv`: 逐板块记录字段来源、公开页面 URL、币种、BK 代码和代理口径说明。
+- `eastmoney_sector_boards.csv`: 本次抓到的原始板块字段留档。
+
+`fund_flow_amount.csv` 和 `sector_total_size.csv` 会按 `date,id` 追加并去重：同一天重复抓取会覆盖同一日期的最新值，新交易日会保留历史记录，页面据此生成“昨日排名”和上下箭头。网页点击“刷新分析”时也会自动尝试运行该脚本。美国 Yahoo Finance 当前更适合获取 ETF 价格、成交量和净资产等行情/资料字段，不提供可直接等同于“ETF 真实净申购/净赎回”或“板块真实净流入/净流出”的免费标准字段，因此项目不会从 Yahoo 价格、成交量或收益率推导美国真实资金流；美国侧需要接入 ETF 发行商、交易所或数据商披露的真实 fund flow 文件后再展示。
+
 本地运行：
 
 ```powershell
