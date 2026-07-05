@@ -186,7 +186,7 @@ function renderFundFlow(fundFlow) {
   const largestOutflow = fundFlow.largest_outflow?.label || "暂无";
   const netClass = Number(fundFlow.net_flow_amount || 0) >= 0 ? "flow-positive" : "flow-negative";
   const stats = [
-    { label: "日期", value: fundFlow.as_of_date || "暂无" },
+    { label: "最新资金流日", value: fundFlow.as_of_date || "暂无" },
     { label: "真实净流入", value: fmtMoney(fundFlow.net_flow_amount), className: netClass },
     { label: "真实流入合计", value: fmtMoney(fundFlow.total_inflow_amount), className: "flow-positive" },
     { label: "真实流出合计", value: fmtMoney(fundFlow.total_outflow_amount), className: "flow-negative" },
@@ -210,7 +210,9 @@ function renderFundFlow(fundFlow) {
     const sourceText = [row.flow_source, row.total_size_source].filter(Boolean).join(" / ");
     const compactSourceText = sourceText.includes("东方财富")
       ? "东方财富 f62 主力净流入 / f20 总市值"
-      : sourceText;
+      : sourceText.includes("StockAnalysis")
+        ? "StockAnalysis AUM/份额快照估算"
+        : sourceText;
     const sourceDetails = [row.board_codes, row.board_names].filter(Boolean).join(" · ");
     const sourceUrl = row.source_url ? escapeHtml(row.source_url) : "";
     const sourceTitle = escapeHtml([sourceText, row.source_notes].filter(Boolean).join("；"));
@@ -222,6 +224,7 @@ function renderFundFlow(fundFlow) {
       <tr>
         <td>${row.rank}</td>
         <td>${escapeHtml(row.label || assetCodeLabel(row.id))}</td>
+        <td>${escapeHtml(row.flow_date || fundFlow.as_of_date || "")}</td>
         <td class="${flowClass}">${fmtMoney(row.flow_amount)}</td>
         <td class="${flowClass}">${fmtPct(row.flow_ratio)}</td>
         <td>${fmtMoney(row.total_size)}</td>
@@ -238,12 +241,13 @@ function renderFundFlow(fundFlow) {
         <tr>
           <th>排名</th>
           <th>板块</th>
+          <th>资金流日期</th>
           <th>真实流入/流出金额</th>
           <th>占板块总规模</th>
           <th>板块总规模</th>
           <th>当日收益</th>
           <th>排名变化</th>
-          <th>昨日排名</th>
+          <th>上个交易日排名</th>
           <th>来源</th>
         </tr>
       </thead>

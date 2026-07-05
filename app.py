@@ -512,6 +512,95 @@ def _flow_ranking_for_date(
     return frame
 
 
+def _series_value_on_or_before(frame: pd.DataFrame, asset_id: str, when: pd.Timestamp) -> float:
+    if frame.empty or asset_id not in frame.columns:
+        return np.nan
+    series = pd.to_numeric(frame[asset_id], errors="coerce").dropna()
+    if series.empty:
+        return np.nan
+    candidates = series[series.index <= when]
+    if candidates.empty:
+        return np.nan
+    return float(candidates.iloc[-1])
+
+
+def _rank_flow_rows(rows: list[dict]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame()
+    frame = pd.DataFrame(rows)
+    frame["flow_ratio"] = pd.to_numeric(frame["flow_ratio"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    frame = frame.dropna(subset=["flow_ratio"])
+    if frame.empty:
+        return pd.DataFrame()
+    frame = frame.sort_values("flow_ratio", ascending=False).reset_index(drop=True)
+    frame["rank"] = frame.index + 1
+    return frame
+
+
+def _latest_flow_rankings(
+    fund_flow: pd.DataFrame,
+    total_size: pd.DataFrame,
+    turnover: pd.DataFrame,
+    returns: pd.DataFrame,
+    as_of: pd.Timestamp | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    fund_flow = fund_flow.rename(columns=str)
+    total_size = total_size.rename(columns=str)
+    turnover = turnover.rename(columns=str) if not turnover.empty else turnover
+    returns = returns.rename(columns=str) if not returns.empty else returns
+    asset_ids = sorted(set(fund_flow.columns).intersection(set(total_size.columns)))
+    current_rows: list[dict] = []
+    previous_rows: list[dict] = []
+    for asset_id in asset_ids:
+        observations = pd.DataFrame(
+            {
+                "flow_amount": pd.to_numeric(fund_flow[asset_id], errors="coerce"),
+                "total_size": pd.to_numeric(total_size[asset_id], errors="coerce"),
+            }
+        ).dropna(subset=["flow_amount", "total_size"])
+        observations = observations[observations["total_size"] > 0].sort_index()
+        if as_of is not None:
+            aligned_observations = observations[observations.index <= as_of]
+            if not aligned_observations.empty:
+                observations = aligned_observations
+        if observations.empty:
+            continue
+        current_date = pd.Timestamp(observations.index[-1])
+        previous_date = pd.Timestamp(observations.index[-2]) if len(observations) > 1 else pd.NaT
+        current = observations.iloc[-1]
+        flow_ratio = float(current["flow_amount"] / current["total_size"])
+        current_rows.append(
+            {
+                "id": asset_id,
+                "flow_date": current_date,
+                "previous_flow_date": previous_date,
+                "flow_amount": float(current["flow_amount"]),
+                "total_size": float(current["total_size"]),
+                "flow_ratio": flow_ratio,
+                "turnover_amount": _series_value_on_or_before(turnover, asset_id, current_date),
+                "latest_return": _series_value_on_or_before(returns, asset_id, current_date),
+            }
+        )
+        if len(observations) > 1:
+            previous = observations.iloc[-2]
+            previous_rows.append(
+                {
+                    "id": asset_id,
+                    "flow_date": previous_date,
+                    "flow_amount": float(previous["flow_amount"]),
+                    "total_size": float(previous["total_size"]),
+                    "flow_ratio": float(previous["flow_amount"] / previous["total_size"]),
+                }
+            )
+    return _rank_flow_rows(current_rows), _rank_flow_rows(previous_rows)
+
+
+def _iso_date(value) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    return pd.Timestamp(value).date().isoformat()
+
+
 def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit: int = 20) -> dict:
     returns = _read_timeseries(data_dir / "returns.csv")
     fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
@@ -526,45 +615,22 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
             "rows": [],
         }
 
-    common_index = fund_flow.index.intersection(total_size.index)
-    if common_index.empty:
-        return {"available": False, "method": "真实资金流与板块总规模日期无法对齐。", "rows": []}
-
-    fund_flow = fund_flow.loc[common_index]
-    total_size = total_size.loc[common_index]
-    if not returns.empty:
-        returns = returns.reindex(common_index)
-    if not turnover.empty:
-        turnover = turnover.reindex(common_index)
-    valid_dates = fund_flow.index[fund_flow.notna().any(axis=1) & total_size.notna().any(axis=1)]
-    if len(valid_dates) < 1:
-        return {"available": False, "method": "真实资金流或板块总规模暂无有效观测。", "rows": []}
-
     as_of = None
     if not latest_regime.empty and "as_of_date" in latest_regime.columns:
         as_of_values = latest_regime["as_of_date"].dropna()
         if not as_of_values.empty:
             as_of = pd.Timestamp(str(as_of_values.iloc[0]))
 
-    if as_of is not None:
-        candidate_dates = valid_dates[valid_dates <= as_of]
-        current_date = candidate_dates[-1] if len(candidate_dates) else valid_dates[-1]
-    else:
-        current_date = valid_dates[-1]
-    previous_dates = valid_dates[valid_dates < current_date]
-    previous_date = previous_dates[-1] if len(previous_dates) else None
-
-    current = _flow_ranking_for_date(fund_flow, total_size, turnover, returns, current_date)
-    previous = _flow_ranking_for_date(fund_flow, total_size, turnover, returns, previous_date) if previous_date is not None else pd.DataFrame()
+    current, previous = _latest_flow_rankings(fund_flow, total_size, turnover, returns, as_of)
     if current.empty:
-        return {"available": False, "method": "最新交易日真实资金流或板块总规模为空。", "rows": []}
+        return {"available": False, "method": "真实资金流或板块总规模暂无有效观测。", "rows": []}
 
     lookup = _asset_lookup(latest_regime)
     previous_rank = dict(zip(previous["id"], previous["rank"])) if not previous.empty else {}
-    rows: list[dict] = []
-    for row in _records(current.head(limit)):
-        asset_id = str(row["id"])
-        rank = int(row["rank"])
+
+    def decorate_row(raw: dict) -> dict:
+        asset_id = str(raw["id"])
+        rank = int(raw["rank"])
         prev_rank = int(previous_rank.get(asset_id, rank))
         rank_change = int(prev_rank - rank)
         if rank_change > 0:
@@ -574,23 +640,27 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         else:
             arrow = "→"
         source = sources.get(asset_id, {})
-        rows.append(
-            {
-                **row,
-                "label": _asset_label(asset_id, lookup),
-                "previous_rank": prev_rank,
-                "rank_change": rank_change,
-                "rank_arrow": arrow,
-                "flow_direction": "流入" if (_safe_float(row.get("flow_amount")) or 0) >= 0 else "流出",
-                "flow_source": source.get("flow_source") or source.get("source") or "未注明",
-                "total_size_source": source.get("total_size_source") or source.get("size_source") or "未注明",
-                "source_url": source.get("source_url") or "",
-                "currency": source.get("currency") or "",
-                "board_codes": source.get("board_codes") or "",
-                "board_names": source.get("board_names") or "",
-                "source_notes": source.get("notes") or "",
-            }
-        )
+        return {
+            **raw,
+            "flow_date": _iso_date(raw.get("flow_date")),
+            "previous_flow_date": _iso_date(raw.get("previous_flow_date")),
+            "label": _asset_label(asset_id, lookup),
+            "previous_rank": prev_rank,
+            "rank_change": rank_change,
+            "rank_arrow": arrow,
+            "flow_direction": "流入" if (_safe_float(raw.get("flow_amount")) or 0) >= 0 else "流出",
+            "flow_source": source.get("flow_source") or source.get("source") or "未注明",
+            "total_size_source": source.get("total_size_source") or source.get("size_source") or "未注明",
+            "source_url": source.get("source_url") or "",
+            "currency": source.get("currency") or "",
+            "board_codes": source.get("board_codes") or "",
+            "board_names": source.get("board_names") or "",
+            "source_notes": source.get("notes") or "",
+        }
+
+    rows: list[dict] = []
+    for row in _records(current.head(limit)):
+        rows.append(decorate_row(row))
 
     inflow = current[current["flow_amount"] > 0]
     outflow = current[current["flow_amount"] < 0]
@@ -601,14 +671,18 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     largest_outflow = None
     if not largest_outflow_row.empty:
         raw = _records(largest_outflow_row)[0]
-        asset_id = str(raw["id"])
-        largest_outflow = {**raw, "label": _asset_label(asset_id, lookup)}
+        largest_outflow = decorate_row(raw)
+
+    current_dates = current["flow_date"].dropna()
+    previous_dates = current["previous_flow_date"].dropna()
+    current_date = pd.Timestamp(current_dates.max()) if not current_dates.empty else None
+    previous_date = pd.Timestamp(previous_dates.max()) if not previous_dates.empty else None
 
     return {
         "available": True,
-        "as_of_date": current_date.date().isoformat(),
-        "previous_date": previous_date.date().isoformat() if previous_date is not None else None,
-        "method": "资金流金额来自 fund_flow_amount.csv 中接入的真实净流入/净流出来源；流入/流出占比 = 真实净流入/净流出金额 ÷ sector_total_size.csv 中的该板块总规模。当前中国侧可接入东方财富公开网页接口 f62 主力净流入，分母为 f20 总市值；美国侧仍需要 ETF 发行商、交易所或数据商提供真实 fund flow 文件，系统不会用 Yahoo 成交量或收益率伪造。",
+        "as_of_date": _iso_date(current_date),
+        "previous_date": _iso_date(previous_date),
+        "method": "资金流金额来自 fund_flow_amount.csv 中接入的净流入/净流出来源；流入/流出占比 = 资金流金额 ÷ sector_total_size.csv 中的该板块总规模。排名变化按每个板块的上一个有效资金流交易日比较，不按自然日“昨天”比较。中国侧接入东方财富公开网页接口 f62 主力净流入，分母为 f20 总市值；美国侧接入 StockAnalysis ETF AUM/份额/价格快照，优先用（本期份额 - 上期份额）× 本期价格估算 ETF 净申赎，缺份额时用 AUM 按价格收益调整估算，并在来源中标注为估计值。",
         "total_inflow_amount": total_inflow,
         "total_outflow_amount": total_outflow,
         "net_flow_amount": total_inflow + total_outflow,

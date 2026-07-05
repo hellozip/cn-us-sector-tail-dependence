@@ -165,10 +165,18 @@ python scripts/fetch_real_fund_flows.py
 
 - `fund_flow_amount.csv`: `f62` 主力净流入，作为真实净流入/净流出金额。
 - `sector_total_size.csv`: `f20` 总市值，作为该板块总规模分母。
-- `fund_flow_sources.csv`: 逐板块记录字段来源、公开页面 URL、币种、BK 代码和代理口径说明。
+- `fund_flow_sources.csv`: 逐板块记录字段来源、公开页面 URL、币种、BK 代码/ETF 代码和代理口径说明。
 - `eastmoney_sector_boards.csv`: 本次抓到的原始板块字段留档。
+- `us_etf_snapshots.csv`: 美国代理 ETF 的 StockAnalysis AUM、份额、价格和数据日期快照。
 
-`fund_flow_amount.csv` 和 `sector_total_size.csv` 会按 `date,id` 追加并去重：同一天重复抓取会覆盖同一日期的最新值，新交易日会保留历史记录，页面据此生成“昨日排名”和上下箭头。网页点击“刷新分析”时也会自动尝试运行该脚本。美国 Yahoo Finance 当前更适合获取 ETF 价格、成交量和净资产等行情/资料字段，不提供可直接等同于“ETF 真实净申购/净赎回”或“板块真实净流入/净流出”的免费标准字段，因此项目不会从 Yahoo 价格、成交量或收益率推导美国真实资金流；美国侧需要接入 ETF 发行商、交易所或数据商披露的真实 fund flow 文件后再展示。
+`fund_flow_amount.csv` 和 `sector_total_size.csv` 会按 `date,id` 追加并去重：同一天重复抓取会覆盖同一日期的最新值，新交易日会保留历史记录。页面的排名变化不是按自然日“昨天”比较，而是按每个板块自己的上一个有效资金流交易日比较，适配周末、节假日和中美交易日不一致的情况。网页点击“刷新分析”时也会自动尝试运行该脚本。
+
+美国侧公开来源调研后采用 StockAnalysis ETF 页面作为可自动接入的数据源。ETFDB 和 ETF.com 页面存在直接 fund flow 展示，但当前自动请求经常被 Cloudflare 阻断，不适合作为稳定抓取源；Yahoo Finance 图表/行情字段不提供可直接等同于 ETF 净申购/净赎回的免费标准字段；Nasdaq API 可取部分 ETF AUM 信息，但不提供净流入字段。StockAnalysis 页面可稳定取得 ETF AUM、Shares Outstanding、价格和数据日期，因此项目会先写入 `us_etf_snapshots.csv`，并在同一 ETF 存在上一个有效交易日快照后生成美国侧资金流估计：
+
+- 优先公式：`(本期份额 - 上期份额) × 本期价格`。
+- 备用公式：`本期 AUM - 上期 AUM × (本期价格 / 上期价格)`。
+
+这类美国侧金额在来源中标注为“ETF 净申赎估计”，不是 ETFDB/ETF.com 披露口径的官方 fund flow。第一次运行通常只会记录快照，不会生成美国侧资金流金额；等下一次有效交易日快照写入后，才会出现可比较的美国侧流入/流出估计。
 
 本地运行：
 
