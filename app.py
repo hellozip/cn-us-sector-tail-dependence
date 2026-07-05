@@ -339,10 +339,79 @@ def _overheat_alerts(latest_regime: pd.DataFrame, limit: int = 5) -> list[dict]:
     return alerts
 
 
-def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.DataFrame) -> dict:
+def _volatility_alerts(latest_regime: pd.DataFrame, sigma_history: pd.DataFrame, limit: int = 8) -> list[dict]:
+    if latest_regime.empty or sigma_history.empty:
+        return []
+    lookup = _asset_lookup(latest_regime)
+    rows: list[dict] = []
+    for row in _records(latest_regime):
+        asset_id = row.get("id")
+        if not asset_id or asset_id not in sigma_history.columns:
+            continue
+        history = pd.to_numeric(sigma_history[asset_id], errors="coerce").dropna()
+        if history.shape[0] < 250:
+            continue
+        latest_sigma = _safe_float(row.get("garch_sigma"))
+        if latest_sigma is None:
+            latest_sigma = _safe_float(history.iloc[-1])
+        if latest_sigma is None:
+            continue
+        median_sigma = float(history.median())
+        if median_sigma <= 0:
+            continue
+        percentile = float((history <= latest_sigma).mean())
+        ratio = latest_sigma / median_sigma
+        residual = abs(_safe_float(row.get("standardized_residual")) or 0.0)
+        latest_return = abs(_safe_float(row.get("latest_return")) or 0.0)
+        if percentile < 0.85 and ratio < 1.35 and residual < 1.8:
+            continue
+        rows.append(
+            {
+                **row,
+                "volatility_percentile": percentile,
+                "volatility_ratio": ratio,
+                "volatility_score": percentile + min(ratio / 2.5, 1.2) + min(residual / 3.0, 1.0) + min(latest_return * 8, 0.5),
+            }
+        )
+
+    alerts: list[dict] = []
+    for row in sorted(rows, key=lambda item: item["volatility_score"], reverse=True)[:limit]:
+        asset_id = row.get("id")
+        label = _asset_label(asset_id, lookup)
+        sigma = _safe_float(row.get("garch_sigma"))
+        percentile = _safe_float(row.get("volatility_percentile"))
+        ratio = _safe_float(row.get("volatility_ratio"))
+        residual = _safe_float(row.get("standardized_residual"))
+        score = _safe_float(row.get("volatility_score"))
+        direction = "上涨冲击" if (_safe_float(row.get("latest_return")) or 0.0) > 0 else "下跌冲击"
+        alerts.append(
+            {
+                "type": "volatility",
+                "subtype": "波动率异常检测",
+                "title": f"{label} 波动率显著偏离自身常态",
+                "source_id": asset_id,
+                "target_id": asset_id,
+                "source_label": label,
+                "target_label": label,
+                "score": score,
+                "relation_metric": percentile,
+                "summary": f"{label} 的最新 GARCH 条件波动率处在自身历史高位，当前价格变化更像是异常波动，而不是普通日内噪声。",
+                "reasons": [
+                    f"最新 GARCH 条件波动率为 {_fmt_pct(sigma)}，处在自身历史约 {_fmt_pct(percentile)} 分位。",
+                    f"当前波动率约为历史中位数的 {_fmt_num(ratio, 2)} 倍，说明波动状态已经明显抬升。",
+                    f"最新标准残差为 {_fmt_num(residual, 2)}，对应{direction}，需要同时观察方向和波动是否继续扩散。",
+                ],
+                "watch": "适合检查仓位杠杆、止损距离和同类板块暴露；波动率异常本身不等于一定上涨或下跌，但会放大后续价格路径的不确定性。",
+            }
+        )
+    return alerts
+
+
+def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.DataFrame, sigma_history: pd.DataFrame) -> dict:
     opportunity_items = _flow_alerts(flow, latest_regime)
     contagion_items = _contagion_alerts(risk, latest_regime)
     overheat_items = _overheat_alerts(latest_regime)
+    volatility_items = _volatility_alerts(latest_regime, sigma_history)
     risk_items = contagion_items + overheat_items
     return {
         "opportunity": {
@@ -356,6 +425,12 @@ def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.Data
             "summary": "同时观察下尾传导风险和短线过热回调风险，避免把高波动误读成确定性机会。",
             "count": len(risk_items),
             "items": risk_items,
+        },
+        "volatility": {
+            "title": "波动异常",
+            "summary": "基于 GARCH 条件波动率的历史分位数，识别当前明显偏离自身常态波动的板块。",
+            "count": len(volatility_items),
+            "items": volatility_items,
         },
     }
 
@@ -376,6 +451,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
     risk = _read_csv(data_dir / f"risk_contagion_candidates_alpha_{alpha_key}.csv", limit=30, sort_by="score")
     matched = _read_csv(data_dir / f"matched_sector_metrics_alpha_{alpha_key}.csv", limit=20)
     garch = _read_csv(data_dir / "garch_params.csv", limit=30)
+    sigma_history = _read_csv(data_dir / "garch_conditional_sigma.csv")
     coverage = _read_csv(data_dir / "asset_coverage.csv", limit=30)
     metrics = _read_csv(data_dir / f"pair_metrics_alpha_{alpha_key}.csv")
 
@@ -433,7 +509,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "latestRegime": _records(latest_regime),
         "flowCandidates": _records(flow),
         "riskCandidates": _records(risk),
-        "alerts": _build_alerts(flow, risk, latest_regime),
+        "alerts": _build_alerts(flow, risk, latest_regime, sigma_history),
         "matchedSectors": _records(matched),
         "garchParams": _records(garch),
         "coverage": _records(coverage),

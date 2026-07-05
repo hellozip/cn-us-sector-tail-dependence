@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中美板块资金流向雷达</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260705-alerts" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260705-volatility" />
 </head>
 <body>
   <header class="app-header">
@@ -50,6 +50,11 @@
         <span>风险提示</span>
         <strong id="riskCount">0</strong>
         <small id="riskSummary">查看下跌传导和短线过热回调风险</small>
+      </button>
+      <button id="openVolatility" class="signal-card volatility" type="button">
+        <span>波动异常</span>
+        <strong id="volatilityCount">0</strong>
+        <small id="volatilitySummary">查看 GARCH 波动率显著偏离常态的板块</small>
       </button>
     </section>
 
@@ -105,7 +110,7 @@
   </main>
 
   <footer>
-    这是风险与资金扩散研究工具，不是确定性买卖信号。机会提示和风险提示来自历史相关结构、GARCH 标准化残差和最新交易日状态。
+    这是风险与资金扩散研究工具，不是确定性买卖信号。机会提示、风险提示和波动异常检测来自历史相关结构、GARCH 条件波动率、GARCH 标准化残差和最新交易日状态。
   </footer>
 
   <div id="signalDialog" class="modal-overlay" hidden>
@@ -123,6 +128,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260705-alerts"></script>
+  <script src="/static/app.js?v=20260705-volatility"></script>
 </body>
 </html>

@@ -37,6 +37,19 @@ const sectorLabel = {
   Utilities: "公用事业",
 };
 
+const idSectorLabel = {
+  INTERNET: "互联网",
+  SEMICONDUCTOR: "半导体",
+  NEW_ENERGY: "新能源",
+  HEALTHCARE: "医药",
+  FINANCIALS: "金融",
+  REAL_ESTATE_CHAIN: "地产链",
+  ENERGY: "能源",
+  MATERIALS: "材料",
+  INDUSTRIALS: "工业",
+  UTILITIES: "公用事业",
+};
+
 const regimeLabel = {
   upper_tail: "上尾强势",
   lower_tail: "下尾弱势",
@@ -53,12 +66,21 @@ const interpretationLabel = {
   possible_downside_spillover: "可能下跌传导",
 };
 
+function assetCodeLabel(value) {
+  if (!value || typeof value !== "string" || !value.includes("_")) return value ?? "";
+  const [market, ...sectorParts] = value.split("_");
+  const sectorKey = sectorParts.join("_");
+  const readableMarket = marketLabel[market] || market;
+  const readableSector = idSectorLabel[sectorKey] || sectorKey.replaceAll("_", " ");
+  return `${readableMarket}${readableSector}`;
+}
+
 const columnLabel = {
   id: "板块",
   source_id: "来源",
   target_id: "目标",
-  left_id: "中国板块",
-  right_id: "美国板块",
+  left_id: "左板块",
+  right_id: "右板块",
   left_sector: "行业",
   sector: "行业",
   market: "市场",
@@ -84,6 +106,7 @@ const columnLabel = {
 };
 
 function formatCell(key, value) {
+  if (["id", "source_id", "target_id", "left_id", "right_id"].includes(key)) return escapeHtml(assetCodeLabel(value));
   if (key === "regime" || key === "source_regime" || key === "target_regime") {
     const safeValue = escapeHtml(value || "");
     return `<span class="badge ${safeValue}">${escapeHtml(regimeLabel[value] || value || "")}</span>`;
@@ -151,19 +174,24 @@ function renderHeatmaps(heatmaps) {
 function renderAlertCards(alerts) {
   const opportunity = alerts?.opportunity || { count: 0, items: [] };
   const risk = alerts?.risk || { count: 0, items: [] };
+  const volatility = alerts?.volatility || { count: 0, items: [] };
   document.getElementById("opportunityCount").textContent = opportunity.count ?? opportunity.items?.length ?? 0;
   document.getElementById("riskCount").textContent = risk.count ?? risk.items?.length ?? 0;
+  document.getElementById("volatilityCount").textContent = volatility.count ?? volatility.items?.length ?? 0;
   document.getElementById("opportunitySummary").textContent = opportunity.summary || "查看下一步可能承接资金扩散的板块";
   document.getElementById("riskSummary").textContent = risk.summary || "查看下跌传导和短线过热回调风险";
+  document.getElementById("volatilitySummary").textContent = volatility.summary || "查看 GARCH 波动率显著偏离常态的板块";
   document.getElementById("openOpportunity").disabled = !opportunity.items || opportunity.items.length === 0;
   document.getElementById("openRisk").disabled = !risk.items || risk.items.length === 0;
+  document.getElementById("openVolatility").disabled = !volatility.items || volatility.items.length === 0;
 }
 
 function renderAlertItem(item) {
   const reasons = (item.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+  const relationLabel = item.type === "volatility" ? "波动分位" : "历史关系";
   const relation = item.relation_metric === null || item.relation_metric === undefined
     ? ""
-    : `<span>历史关系 ${fmtPct(item.relation_metric)}</span>`;
+    : `<span>${relationLabel} ${fmtPct(item.relation_metric)}</span>`;
   const score = item.score === null || item.score === undefined
     ? ""
     : `<span>信号分数 ${fmtNum(item.score)}</span>`;
@@ -185,7 +213,12 @@ function openSignalDialog(type) {
   const group = currentDashboard?.alerts?.[type];
   if (!group || !group.items || group.items.length === 0) return;
   const dialog = document.getElementById("signalDialog");
-  document.getElementById("signalDialogEyebrow").textContent = type === "opportunity" ? "资金扩散观察" : "风险与回调观察";
+  const eyebrow = {
+    opportunity: "资金扩散观察",
+    risk: "风险与回调观察",
+    volatility: "GARCH 波动率异常检测",
+  };
+  document.getElementById("signalDialogEyebrow").textContent = eyebrow[type] || "信号提示";
   document.getElementById("signalDialogTitle").textContent = group.title || "提示";
   document.getElementById("signalDialogSummary").textContent = group.summary || "";
   document.getElementById("signalDialogList").innerHTML = group.items.map(renderAlertItem).join("");
@@ -257,6 +290,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("refreshBtn").addEventListener("click", refreshAnalysis);
   document.getElementById("openOpportunity").addEventListener("click", () => openSignalDialog("opportunity"));
   document.getElementById("openRisk").addEventListener("click", () => openSignalDialog("risk"));
+  document.getElementById("openVolatility").addEventListener("click", () => openSignalDialog("volatility"));
   document.getElementById("closeSignalDialog").addEventListener("click", closeSignalDialog);
   document.getElementById("signalDialog").addEventListener("click", (event) => {
     if (event.target.id === "signalDialog") closeSignalDialog();
