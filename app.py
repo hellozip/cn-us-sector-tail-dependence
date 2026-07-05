@@ -5,8 +5,10 @@ import mimetypes
 import os
 import subprocess
 import sys
-from datetime import date, timedelta
+import time
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from threading import Lock
 from urllib.parse import parse_qs, unquote
 
 import numpy as np
@@ -18,6 +20,10 @@ OUTPUT_DIR = ROOT / "outputs" / "latest"
 REPORTS_DIR = ROOT / "reports"
 WEB_DIR = ROOT / "web"
 STATIC_DIR = WEB_DIR / "static"
+FUND_FLOW_FILES = ["fund_flow_amount.csv", "sector_total_size.csv", "fund_flow_sources.csv"]
+FUND_FLOW_STATUS_FILE = "fund_flow_auto_refresh_status.json"
+_FUND_FLOW_LOCK = Lock()
+_FUND_FLOW_STATUS: dict | None = None
 
 MARKET_LABELS = {
     "US": "美国",
@@ -126,6 +132,138 @@ def _active_data_dir() -> Path:
         return OUTPUT_DIR
     snapshot = _latest_snapshot_dir()
     return snapshot if snapshot else OUTPUT_DIR
+
+
+def _env_flag(name: str, default: bool = True) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _fund_flow_paths(data_dir: Path = OUTPUT_DIR) -> list[Path]:
+    return [data_dir / name for name in FUND_FLOW_FILES]
+
+
+def _fund_flow_files_ready(data_dir: Path = OUTPUT_DIR) -> bool:
+    return all(path.exists() and path.stat().st_size > 0 for path in _fund_flow_paths(data_dir))
+
+
+def _fund_flow_refresh_interval_seconds() -> int:
+    raw = os.environ.get("FUND_FLOW_AUTO_REFRESH_SECONDS", "21600")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 21600
+
+
+def _fund_flow_retry_interval_seconds() -> int:
+    raw = os.environ.get("FUND_FLOW_RETRY_SECONDS", "900")
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 900
+
+
+def _fund_flow_needs_refresh(data_dir: Path = OUTPUT_DIR) -> tuple[bool, str]:
+    if not _env_flag("AUTO_FETCH_FUND_FLOWS", True):
+        return False, "disabled"
+    if _FUND_FLOW_STATUS and _FUND_FLOW_STATUS.get("attempted") and not _FUND_FLOW_STATUS.get("ok"):
+        checked_at_epoch = _safe_float(_FUND_FLOW_STATUS.get("checked_at_epoch")) or 0.0
+        retry_after = _fund_flow_retry_interval_seconds()
+        wait_left = retry_after - (time.time() - checked_at_epoch)
+        if wait_left > 0:
+            return False, f"retry-wait:{int(wait_left)}s"
+    paths = _fund_flow_paths(data_dir)
+    missing = [path.name for path in paths if not path.exists() or path.stat().st_size <= 0]
+    if missing:
+        return True, f"missing:{','.join(missing)}"
+    interval = _fund_flow_refresh_interval_seconds()
+    if interval <= 0:
+        return False, "ready"
+    latest_mtime = max(path.stat().st_mtime for path in paths)
+    age_seconds = time.time() - latest_mtime
+    if age_seconds > interval:
+        return True, f"stale:{int(age_seconds)}s"
+    return False, f"fresh:{int(age_seconds)}s"
+
+
+def _run_fund_flow_fetch(reason: str, force: bool = False) -> dict:
+    global _FUND_FLOW_STATUS
+    with _FUND_FLOW_LOCK:
+        if not force:
+            needs_refresh, current_reason = _fund_flow_needs_refresh(OUTPUT_DIR)
+            if not needs_refresh:
+                _FUND_FLOW_STATUS = {
+                    "attempted": False,
+                    "ok": True,
+                    "reason": current_reason,
+                    "checked_at_epoch": time.time(),
+                    "checked_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                }
+                return _FUND_FLOW_STATUS
+            reason = current_reason
+
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        cmd = [
+            sys.executable,
+            str(ROOT / "scripts" / "fetch_real_fund_flows.py"),
+            "--output",
+            str(OUTPUT_DIR),
+            "--page-size",
+            "20",
+        ]
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        timeout = int(os.environ.get("FUND_FLOW_FETCH_TIMEOUT_SECONDS", "180"))
+        started_at = time.time()
+        try:
+            result = subprocess.run(
+                cmd,
+                cwd=ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
+            files_ready = _fund_flow_files_ready(OUTPUT_DIR)
+            metric_paths = [OUTPUT_DIR / "fund_flow_amount.csv", OUTPUT_DIR / "sector_total_size.csv"]
+            metrics_updated = all(path.exists() and path.stat().st_mtime >= started_at for path in metric_paths)
+            status = {
+                "attempted": True,
+                "ok": result.returncode == 0 and files_ready and metrics_updated,
+                "reason": reason,
+                "returncode": result.returncode,
+                "files_ready": files_ready,
+                "metrics_updated": metrics_updated,
+                "stdout": (result.stdout or "")[-3000:],
+                "stderr": (result.stderr or "")[-3000:],
+                "checked_at_epoch": time.time(),
+                "checked_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            }
+        except subprocess.TimeoutExpired as exc:
+            status = {
+                "attempted": True,
+                "ok": False,
+                "reason": reason,
+                "returncode": None,
+                "stdout": (exc.stdout or "")[-3000:] if isinstance(exc.stdout, str) else "",
+                "stderr": "fund flow fetch timed out",
+                "checked_at_epoch": time.time(),
+                "checked_at": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            }
+        _FUND_FLOW_STATUS = status
+        try:
+            (OUTPUT_DIR / FUND_FLOW_STATUS_FILE).write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            pass
+        return status
+
+
+def _ensure_fund_flow_data() -> dict:
+    return _run_fund_flow_fetch("dashboard", force=False)
 
 
 def _alpha_token(value: str | float | int | None) -> str | None:
@@ -603,10 +741,13 @@ def _iso_date(value) -> str | None:
 
 def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit: int = 20) -> dict:
     returns = _read_timeseries(data_dir / "returns.csv")
-    fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
-    total_size = _read_metric_timeseries(data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
+    flow_data_dir = data_dir
+    if not _fund_flow_files_ready(flow_data_dir) and flow_data_dir != OUTPUT_DIR and _fund_flow_files_ready(OUTPUT_DIR):
+        flow_data_dir = OUTPUT_DIR
+    fund_flow = _read_metric_timeseries(flow_data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
+    total_size = _read_metric_timeseries(flow_data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
     turnover = _read_timeseries(data_dir / "turnover_amount.csv")
-    sources = _read_fund_flow_sources(data_dir / "fund_flow_sources.csv")
+    sources = _read_fund_flow_sources(flow_data_dir / "fund_flow_sources.csv")
 
     if fund_flow.empty or total_size.empty:
         return {
@@ -682,6 +823,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         "available": True,
         "as_of_date": _iso_date(current_date),
         "previous_date": _iso_date(previous_date),
+        "data_dir": str(flow_data_dir.relative_to(ROOT)) if flow_data_dir.exists() else str(flow_data_dir),
         "method": "资金流金额来自 fund_flow_amount.csv 中接入的净流入/净流出来源；流入/流出占比 = 资金流金额 ÷ sector_total_size.csv 中的该板块总规模。排名变化按每个板块的上一个有效资金流交易日比较，不按自然日“昨天”比较。中国侧接入东方财富公开网页接口 f62 主力净流入，分母为 f20 总市值；美国侧接入 StockAnalysis ETF AUM/份额/价格快照，优先用（本期份额 - 上期份额）× 本期价格估算 ETF 净申赎，缺份额时用 AUM 按价格收益调整估算，并在来源中标注为估计值。",
         "total_inflow_amount": total_inflow,
         "total_outflow_amount": total_outflow,
@@ -701,6 +843,7 @@ def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
 
 
 def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
+    fund_flow_refresh = _ensure_fund_flow_data()
     data_dir = _active_data_dir()
     alpha_key = _detect_alpha_token(data_dir, _alpha_token(alpha))
     latest_regime = _read_csv(data_dir / f"latest_regime_alpha_{alpha_key}.csv")
@@ -759,6 +902,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "risk_count": int(risk.shape[0]),
         "latest_report_url": "/report-assets/report.html" if report_path else None,
         "uses_live_outputs": data_dir == OUTPUT_DIR,
+        "fund_flow_auto_refresh": fund_flow_refresh,
     }
 
     return {
@@ -809,22 +953,26 @@ def _refresh_from_body(environ) -> dict:
 
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
-    result = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=900)
-    flow_result = None
+    result = subprocess.run(
+        cmd,
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=900,
+    )
+    flow_status = None
     if result.returncode == 0:
-        flow_cmd = [
-            sys.executable,
-            str(ROOT / "scripts" / "fetch_real_fund_flows.py"),
-            "--output",
-            str(OUTPUT_DIR),
-        ]
-        flow_result = subprocess.run(flow_cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=120)
+        flow_status = _run_fund_flow_fetch("manual-refresh", force=True)
     return {
         "ok": result.returncode == 0,
         "returncode": result.returncode,
-        "stdout": ((result.stdout or "") + ("\n" + flow_result.stdout if flow_result else ""))[-4000:],
-        "stderr": ((result.stderr or "") + ("\n" + flow_result.stderr if flow_result and flow_result.returncode != 0 else ""))[-4000:],
-        "fund_flow_returncode": flow_result.returncode if flow_result else None,
+        "stdout": ((result.stdout or "") + ("\n" + (flow_status.get("stdout") or "") if flow_status else ""))[-4000:],
+        "stderr": ((result.stderr or "") + ("\n" + (flow_status.get("stderr") or "") if flow_status and not flow_status.get("ok") else ""))[-4000:],
+        "fund_flow_returncode": flow_status.get("returncode") if flow_status else None,
+        "fund_flow_status": flow_status,
         "dashboard": _dashboard_payload(alpha=alpha) if result.returncode == 0 else None,
     }
 
