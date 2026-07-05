@@ -184,16 +184,17 @@ function renderFundFlow(fundFlow) {
   methodTarget.textContent = fundFlow.method;
   const largestInflow = fundFlow.largest_inflow?.label || "暂无";
   const largestOutflow = fundFlow.largest_outflow?.label || "暂无";
+  const netClass = Number(fundFlow.net_flow_amount || 0) >= 0 ? "flow-positive" : "flow-negative";
   const stats = [
-    ["日期", fundFlow.as_of_date || "暂无"],
-    ["净流入压力", fmtMoney(fundFlow.net_flow_amount)],
-    ["流入合计", fmtMoney(fundFlow.total_inflow_amount)],
-    ["流出合计", fmtMoney(fundFlow.total_outflow_amount)],
-    ["最大流入", largestInflow],
-    ["最大流出", largestOutflow],
+    { label: "日期", value: fundFlow.as_of_date || "暂无" },
+    { label: "净流入压力", value: fmtMoney(fundFlow.net_flow_amount), className: netClass },
+    { label: "流入合计", value: fmtMoney(fundFlow.total_inflow_amount), className: "flow-positive" },
+    { label: "流出合计", value: fmtMoney(fundFlow.total_outflow_amount), className: "flow-negative" },
+    { label: "最大流入", value: largestInflow, className: "flow-positive" },
+    { label: "最大流出", value: largestOutflow, className: "flow-negative" },
   ];
-  statsTarget.innerHTML = stats.map(([label, value]) => (
-    `<div class="flow-stat"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`
+  statsTarget.innerHTML = stats.map((stat) => (
+    `<div class="flow-stat"><span>${stat.label}</span><strong class="${stat.className || ""}">${escapeHtml(stat.value)}</strong></div>`
   )).join("");
 
   const rows = fundFlow.rows || [];
@@ -212,9 +213,9 @@ function renderFundFlow(fundFlow) {
         <td class="${flowClass}">${fmtMoney(row.flow_amount)}</td>
         <td class="${flowClass}">${fmtPct(row.flow_ratio)}</td>
         <td>${fmtMoney(row.turnover_amount)}</td>
-        <td>${fmtPct(row.latest_return)}</td>
+        <td class="${flowClass}">${fmtPct(row.latest_return)}</td>
         <td><span class="rank-arrow ${rankArrowClass(arrow)}">${escapeHtml(arrow)}</span></td>
-        <td>${row.previous_rank ?? "暂无"}</td>
+        <td>${row.previous_rank ?? row.rank}</td>
       </tr>
     `;
   }).join("");

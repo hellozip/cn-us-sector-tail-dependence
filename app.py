@@ -449,8 +449,8 @@ def _flow_ranking_for_date(
 ) -> pd.DataFrame:
     if when not in flow_pressure.index:
         return pd.DataFrame()
-    amount = pd.to_numeric(flow_pressure.loc[when], errors="coerce").dropna()
-    amount = amount[amount != 0]
+    amount = pd.to_numeric(flow_pressure.loc[when], errors="coerce")
+    amount = amount.reindex(flow_pressure.columns).fillna(0.0)
     if amount.empty:
         return pd.DataFrame()
     total_abs = float(amount.abs().sum())
@@ -523,11 +523,9 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     for row in _records(current.head(limit)):
         asset_id = str(row["id"])
         rank = int(row["rank"])
-        prev_rank = previous_rank.get(asset_id)
-        rank_change = int(prev_rank - rank) if prev_rank else None
-        if rank_change is None:
-            arrow = "新"
-        elif rank_change > 0:
+        prev_rank = int(previous_rank.get(asset_id, rank))
+        rank_change = int(prev_rank - rank)
+        if rank_change > 0:
             arrow = f"↑{rank_change}"
         elif rank_change < 0:
             arrow = f"↓{abs(rank_change)}"
@@ -537,7 +535,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
             {
                 **row,
                 "label": _asset_label(asset_id, lookup),
-                "previous_rank": int(prev_rank) if prev_rank else None,
+                "previous_rank": prev_rank,
                 "rank_change": rank_change,
                 "rank_arrow": arrow,
                 "flow_direction": "流入" if (_safe_float(row.get("flow_amount")) or 0) >= 0 else "流出",

@@ -54,7 +54,6 @@ h1 {
   font-size: 15px;
 }
 
-.repo-link,
 button {
   border: 1px solid var(--blue);
   background: var(--blue);
@@ -226,12 +225,12 @@ input {
 }
 
 .flow-positive {
-  color: #047857;
+  color: var(--red);
   font-weight: 700;
 }
 
 .flow-negative {
-  color: var(--red);
+  color: #047857;
   font-weight: 700;
 }
 
@@ -245,13 +244,13 @@ input {
 }
 
 .rank-up {
-  color: #047857;
-  background: #d1fae5;
+  color: #7f1d1d;
+  background: #fee2e2;
 }
 
 .rank-down {
-  color: #7f1d1d;
-  background: #fee2e2;
+  color: #047857;
+  background: #d1fae5;
 }
 
 .rank-flat {
@@ -602,11 +601,6 @@ body.modal-open {
 
   .app-header {
     display: block;
-  }
-
-  .repo-link {
-    display: inline-block;
-    margin-top: 16px;
   }
 
   .modal-overlay {
