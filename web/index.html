@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>中美板块资金流向雷达</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">GARCH · Copula · Regime Signal</p>
+      <h1>中美板块资金流向雷达</h1>
+      <p class="subtitle">基于 GARCH 标准化残差，分下尾、上尾和中间区间判断板块联动与潜在扩散方向。</p>
+    </div>
+    <a class="repo-link" href="https://github.com/hellozip/cn-us-sector-tail-dependence" target="_blank" rel="noreferrer">GitHub</a>
+  </header>
+
+  <main>
+    <section class="toolbar" aria-label="刷新分析">
+      <label>
+        开始日期
+        <input id="startDate" type="date" value="2019-07-04" />
+      </label>
+      <label>
+        结束日期
+        <input id="endDate" type="date" />
+      </label>
+      <label>
+        Tail alpha
+        <input id="alpha" type="number" min="0.01" max="0.20" step="0.01" value="0.05" />
+      </label>
+      <label class="check-row">
+        <input id="noGarch" type="checkbox" />
+        <span>使用原始收益率</span>
+      </label>
+      <button id="refreshBtn" type="button">刷新分析</button>
+      <span id="statusText" class="status-text">读取中...</span>
+    </section>
+
+    <section class="kpis" id="kpis"></section>
+
+    <section class="section-grid">
+      <div class="panel wide">
+        <div class="panel-heading">
+          <h2>最新板块状态</h2>
+          <p>根据最新交易日的 GARCH 标准化残差历史分位数划分。</p>
+        </div>
+        <div id="latestTable" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>潜在流向候选</h2>
+          <p>当前强势板块可能扩散到的目标板块。</p>
+        </div>
+        <div id="flowTable" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>风险传导候选</h2>
+          <p>当前弱势板块可能拖累的目标板块。</p>
+        </div>
+        <div id="riskTable" class="table-wrap"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-heading">
+        <h2>相关性热力图</h2>
+        <p>下尾、上尾、中间区间和全样本联动一并查看。</p>
+      </div>
+      <div id="heatmapTabs" class="tabs"></div>
+      <div class="heatmap-frame">
+        <img id="heatmapImage" alt="相关性热力图" />
+      </div>
+    </section>
+
+    <section class="section-grid">
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>中美同板块对照</h2>
+        </div>
+        <div id="matchedTable" class="table-wrap"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-heading">
+          <h2>GARCH 参数</h2>
+        </div>
+        <div id="garchTable" class="table-wrap"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    这是风险与资金扩散研究工具，不是确定性买卖信号。信号来自历史相关结构和最新交易日状态。
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
+
