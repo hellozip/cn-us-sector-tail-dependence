@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中美板块资金流向雷达</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260705-volatility" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260705-fundflow2" />
 </head>
 <body>
   <header class="app-header">
@@ -36,6 +36,18 @@
       </label>
       <button id="refreshBtn" type="button">刷新分析</button>
       <span id="statusText" class="status-text">读取中...</span>
+    </section>
+
+    <section class="fund-flow-panel" aria-label="板块资金流入流出综述">
+      <div class="panel-heading">
+        <div>
+          <p class="eyebrow">资金流入流出代理指标</p>
+          <h2>板块资金流入流出综述</h2>
+          <p id="fundFlowMethod">按涨跌幅加权成交额估算板块资金流压力，并按流入流出占比排序。</p>
+        </div>
+      </div>
+      <div id="fundFlowStats" class="fund-flow-stats"></div>
+      <div id="fundFlowTable" class="table-wrap"></div>
     </section>
 
     <section class="kpis" id="kpis"></section>
@@ -128,6 +140,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260705-volatility"></script>
+  <script src="/static/app.js?v=20260705-fundflow2"></script>
 </body>
 </html>

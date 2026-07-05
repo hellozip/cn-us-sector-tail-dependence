@@ -14,6 +14,7 @@ import pandas as pd
 @dataclass(frozen=True)
 class YahooResult:
     prices: pd.Series
+    volumes: pd.Series
     meta: dict
 
 
@@ -63,10 +64,13 @@ def fetch_symbol(symbol: str, start: str | date, end: str | date, timeout: int =
             meta = result.get("meta", {})
             quote = (result.get("indicators", {}).get("quote") or [{}])[0]
             close = quote.get("close") or []
+            volume = quote.get("volume") or []
             adj = ((result.get("indicators", {}).get("adjclose") or [{}])[0]).get("adjclose")
             values = adj if adj else close
             if not timestamps or not values:
                 raise RuntimeError(f"No price observations for {symbol}")
+            if len(volume) != len(timestamps):
+                volume = [None] * len(timestamps)
 
             timezone_name = meta.get("exchangeTimezoneName") or meta.get("timezone") or "UTC"
             dates = pd.to_datetime(timestamps, unit="s", utc=True)
@@ -78,11 +82,16 @@ def fetch_symbol(symbol: str, start: str | date, end: str | date, timeout: int =
                 {
                     "date": dates.tz_localize(None).normalize(),
                     "close": values,
+                    "volume": volume,
                 }
-            ).dropna()
+            ).dropna(subset=["close"])
             df = df.drop_duplicates("date", keep="last").set_index("date").sort_index()
             df = df.loc[(df.index.date >= start_date) & (df.index.date <= end_date)]
-            return YahooResult(prices=df["close"].astype(float).rename(symbol), meta=meta)
+            return YahooResult(
+                prices=df["close"].astype(float).rename(symbol),
+                volumes=df["volume"].astype(float).rename(symbol),
+                meta=meta,
+            )
         except Exception as exc:  # pragma: no cover - retries cover transient network failures.
             last_error = exc
             time.sleep(1.5 * (attempt + 1))
@@ -90,13 +99,16 @@ def fetch_symbol(symbol: str, start: str | date, end: str | date, timeout: int =
     raise RuntimeError(f"Failed to fetch {symbol}") from last_error
 
 
-def fetch_prices(assets: pd.DataFrame, start: str | date, end: str | date) -> tuple[pd.DataFrame, pd.DataFrame]:
-    series: list[pd.Series] = []
+def fetch_price_volume(assets: pd.DataFrame, start: str | date, end: str | date) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    price_series: list[pd.Series] = []
+    volume_series: list[pd.Series] = []
     meta_rows: list[dict] = []
     for row in assets.itertuples(index=False):
         result = fetch_symbol(row.ticker, start, end)
         prices = result.prices.rename(row.id)
-        series.append(prices)
+        volumes = result.volumes.rename(row.id)
+        price_series.append(prices)
+        volume_series.append(volumes)
         meta = result.meta
         meta_rows.append(
             {
@@ -109,10 +121,17 @@ def fetch_prices(assets: pd.DataFrame, start: str | date, end: str | date) -> tu
                 "first_price_date": prices.index.min().date().isoformat(),
                 "last_price_date": prices.index.max().date().isoformat(),
                 "price_observations": int(prices.notna().sum()),
+                "volume_observations": int(volumes.notna().sum()),
             }
         )
-    prices_df = pd.concat(series, axis=1).sort_index()
-    return prices_df, pd.DataFrame(meta_rows)
+    prices_df = pd.concat(price_series, axis=1).sort_index()
+    volumes_df = pd.concat(volume_series, axis=1).sort_index()
+    return prices_df, volumes_df, pd.DataFrame(meta_rows)
+
+
+def fetch_prices(assets: pd.DataFrame, start: str | date, end: str | date) -> tuple[pd.DataFrame, pd.DataFrame]:
+    prices_df, _, meta_df = fetch_price_volume(assets, start, end)
+    return prices_df, meta_df
 
 
 def missing_tickers(assets: pd.DataFrame, prices: pd.DataFrame) -> list[str]:

@@ -1,6 +1,9 @@
 const fmtPct = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return "";
-  return `${(Number(value) * 100).toFixed(1)}%`;
+  const pct = Number(value) * 100;
+  if (pct > 0 && pct < 0.05) return "<0.1%";
+  if (pct < 0 && pct > -0.05) return "-<0.1%";
+  return `${pct.toFixed(1)}%`;
 };
 
 const fmtNum = (value, digits = 3) => {
@@ -9,6 +12,16 @@ const fmtNum = (value, digits = 3) => {
 };
 
 const fmtRet = (value) => fmtPct(value);
+
+const fmtMoney = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "暂无";
+  const number = Number(value);
+  const sign = number < 0 ? "-" : "";
+  const abs = Math.abs(number);
+  if (abs >= 1e8) return `${sign}${(abs / 1e8).toFixed(2)}亿`;
+  if (abs >= 1e4) return `${sign}${(abs / 1e4).toFixed(2)}万`;
+  return `${sign}${abs.toFixed(0)}`;
+};
 
 let currentDashboard = null;
 
@@ -150,6 +163,80 @@ function renderKpis(summary) {
   )).join("");
 }
 
+function rankArrowClass(value) {
+  if (typeof value !== "string") return "";
+  if (value.startsWith("↑")) return "rank-up";
+  if (value.startsWith("↓")) return "rank-down";
+  return "rank-flat";
+}
+
+function renderFundFlow(fundFlow) {
+  const statsTarget = document.getElementById("fundFlowStats");
+  const tableTarget = document.getElementById("fundFlowTable");
+  const methodTarget = document.getElementById("fundFlowMethod");
+  if (!fundFlow || !fundFlow.available) {
+    methodTarget.textContent = fundFlow?.method || "暂无资金流数据。刷新分析后可生成成交量驱动的资金流代理指标。";
+    statsTarget.innerHTML = "";
+    tableTarget.innerHTML = '<div class="empty">暂无资金流入流出数据</div>';
+    return;
+  }
+
+  methodTarget.textContent = fundFlow.method;
+  const largestInflow = fundFlow.largest_inflow?.label || "暂无";
+  const largestOutflow = fundFlow.largest_outflow?.label || "暂无";
+  const stats = [
+    ["日期", fundFlow.as_of_date || "暂无"],
+    ["净流入压力", fmtMoney(fundFlow.net_flow_amount)],
+    ["流入合计", fmtMoney(fundFlow.total_inflow_amount)],
+    ["流出合计", fmtMoney(fundFlow.total_outflow_amount)],
+    ["最大流入", largestInflow],
+    ["最大流出", largestOutflow],
+  ];
+  statsTarget.innerHTML = stats.map(([label, value]) => (
+    `<div class="flow-stat"><span>${label}</span><strong>${escapeHtml(value)}</strong></div>`
+  )).join("");
+
+  const rows = fundFlow.rows || [];
+  if (rows.length === 0) {
+    tableTarget.innerHTML = '<div class="empty">暂无资金流入流出数据</div>';
+    return;
+  }
+  const body = rows.map((row) => {
+    const amount = Number(row.flow_amount || 0);
+    const flowClass = amount >= 0 ? "flow-positive" : "flow-negative";
+    const arrow = row.rank_arrow || "";
+    return `
+      <tr>
+        <td>${row.rank}</td>
+        <td>${escapeHtml(row.label || assetCodeLabel(row.id))}</td>
+        <td class="${flowClass}">${fmtMoney(row.flow_amount)}</td>
+        <td class="${flowClass}">${fmtPct(row.flow_ratio)}</td>
+        <td>${fmtMoney(row.turnover_amount)}</td>
+        <td>${fmtPct(row.latest_return)}</td>
+        <td><span class="rank-arrow ${rankArrowClass(arrow)}">${escapeHtml(arrow)}</span></td>
+        <td>${row.previous_rank ?? "暂无"}</td>
+      </tr>
+    `;
+  }).join("");
+  tableTarget.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>排名</th>
+          <th>板块</th>
+          <th>流入/流出金额</th>
+          <th>流入/流出占比</th>
+          <th>成交额</th>
+          <th>当日收益</th>
+          <th>排名变化</th>
+          <th>昨日排名</th>
+        </tr>
+      </thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
 function renderHeatmaps(heatmaps) {
   const tabs = document.getElementById("heatmapTabs");
   const img = document.getElementById("heatmapImage");
@@ -233,6 +320,7 @@ function closeSignalDialog() {
 
 function renderDashboard(data) {
   currentDashboard = data;
+  renderFundFlow(data.fundFlow);
   renderKpis(data.summary);
   renderAlertCards(data.alerts);
   renderTable("latestTable", data.latestRegime, ["id", "market", "sector", "latest_return", "standardized_residual", "empirical_percentile", "regime", "regime_strength"], 30);

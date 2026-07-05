@@ -158,6 +158,12 @@ def _read_csv(path: Path, limit: int | None = None, sort_by: str | None = None, 
     return frame
 
 
+def _read_timeseries(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
 def _records(frame: pd.DataFrame) -> list[dict]:
     if frame.empty:
         return []
@@ -435,6 +441,135 @@ def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.Data
     }
 
 
+def _flow_ranking_for_date(
+    flow_pressure: pd.DataFrame,
+    turnover: pd.DataFrame,
+    returns: pd.DataFrame,
+    when: pd.Timestamp,
+) -> pd.DataFrame:
+    if when not in flow_pressure.index:
+        return pd.DataFrame()
+    amount = pd.to_numeric(flow_pressure.loc[when], errors="coerce").dropna()
+    amount = amount[amount != 0]
+    if amount.empty:
+        return pd.DataFrame()
+    total_abs = float(amount.abs().sum())
+    if total_abs <= 0:
+        return pd.DataFrame()
+    frame = pd.DataFrame({"id": amount.index, "flow_amount": amount.values})
+    frame["flow_ratio"] = frame["flow_amount"] / total_abs
+    if when in turnover.index:
+        frame["turnover_amount"] = frame["id"].map(pd.to_numeric(turnover.loc[when], errors="coerce").to_dict())
+    else:
+        frame["turnover_amount"] = np.nan
+    if when in returns.index:
+        frame["latest_return"] = frame["id"].map(pd.to_numeric(returns.loc[when], errors="coerce").to_dict())
+    else:
+        frame["latest_return"] = np.nan
+    frame = frame.sort_values("flow_ratio", ascending=False).reset_index(drop=True)
+    frame["rank"] = frame.index + 1
+    return frame
+
+
+def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit: int = 20) -> dict:
+    prices = _read_timeseries(data_dir / "prices.csv")
+    returns = _read_timeseries(data_dir / "returns.csv")
+    volumes = _read_timeseries(data_dir / "volumes.csv")
+    turnover = _read_timeseries(data_dir / "turnover_amount.csv")
+
+    if turnover.empty and not prices.empty and not volumes.empty:
+        turnover = prices.mul(volumes)
+
+    if returns.empty or turnover.empty:
+        return {
+            "available": False,
+            "method": "需要成交量数据。点击刷新分析后，系统会从 Yahoo 图表接口抓取成交量并生成资金流代理指标。",
+            "rows": [],
+        }
+
+    common_index = returns.index.intersection(turnover.index)
+    if common_index.empty:
+        return {"available": False, "method": "收益率与成交额日期无法对齐。", "rows": []}
+
+    returns = returns.loc[common_index]
+    turnover = turnover.loc[common_index]
+    flow_pressure = returns.mul(turnover)
+    valid_dates = flow_pressure.index[flow_pressure.notna().any(axis=1)]
+    if len(valid_dates) < 1:
+        return {"available": False, "method": "资金流代理指标暂无有效观测。", "rows": []}
+
+    as_of = None
+    if not latest_regime.empty and "as_of_date" in latest_regime.columns:
+        as_of_values = latest_regime["as_of_date"].dropna()
+        if not as_of_values.empty:
+            as_of = pd.Timestamp(str(as_of_values.iloc[0]))
+
+    if as_of is not None:
+        candidate_dates = valid_dates[valid_dates <= as_of]
+        current_date = candidate_dates[-1] if len(candidate_dates) else valid_dates[-1]
+    else:
+        current_date = valid_dates[-1]
+    previous_dates = valid_dates[valid_dates < current_date]
+    previous_date = previous_dates[-1] if len(previous_dates) else None
+
+    current = _flow_ranking_for_date(flow_pressure, turnover, returns, current_date)
+    previous = _flow_ranking_for_date(flow_pressure, turnover, returns, previous_date) if previous_date is not None else pd.DataFrame()
+    if current.empty:
+        return {"available": False, "method": "最新交易日资金流代理指标为空。", "rows": []}
+
+    lookup = _asset_lookup(latest_regime)
+    previous_rank = dict(zip(previous["id"], previous["rank"])) if not previous.empty else {}
+    rows: list[dict] = []
+    for row in _records(current.head(limit)):
+        asset_id = str(row["id"])
+        rank = int(row["rank"])
+        prev_rank = previous_rank.get(asset_id)
+        rank_change = int(prev_rank - rank) if prev_rank else None
+        if rank_change is None:
+            arrow = "新"
+        elif rank_change > 0:
+            arrow = f"↑{rank_change}"
+        elif rank_change < 0:
+            arrow = f"↓{abs(rank_change)}"
+        else:
+            arrow = "→"
+        rows.append(
+            {
+                **row,
+                "label": _asset_label(asset_id, lookup),
+                "previous_rank": int(prev_rank) if prev_rank else None,
+                "rank_change": rank_change,
+                "rank_arrow": arrow,
+                "flow_direction": "流入" if (_safe_float(row.get("flow_amount")) or 0) >= 0 else "流出",
+            }
+        )
+
+    inflow = current[current["flow_amount"] > 0]
+    outflow = current[current["flow_amount"] < 0]
+    total_inflow = float(inflow["flow_amount"].sum()) if not inflow.empty else 0.0
+    total_outflow = float(outflow["flow_amount"].sum()) if not outflow.empty else 0.0
+    largest_inflow = rows[0] if rows else None
+    largest_outflow_row = current.sort_values("flow_ratio", ascending=True).head(1)
+    largest_outflow = None
+    if not largest_outflow_row.empty:
+        raw = _records(largest_outflow_row)[0]
+        asset_id = str(raw["id"])
+        largest_outflow = {**raw, "label": _asset_label(asset_id, lookup)}
+
+    return {
+        "available": True,
+        "as_of_date": current_date.date().isoformat(),
+        "previous_date": previous_date.date().isoformat() if previous_date is not None else None,
+        "method": "资金流金额为 ETF/指数代理标的的涨跌幅加权成交额：当日收益率 × 收盘价 × 成交量；占比为该值除以全板块绝对值合计。正数代表流入压力，负数代表流出压力。中美标的币种未做汇率转换，因此更适合看比例和排名。",
+        "total_inflow_amount": total_inflow,
+        "total_outflow_amount": total_outflow,
+        "net_flow_amount": total_inflow + total_outflow,
+        "largest_inflow": largest_inflow,
+        "largest_outflow": largest_outflow,
+        "rows": rows,
+    }
+
+
 def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
     for name in names:
         path = data_dir / name
@@ -509,6 +644,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "latestRegime": _records(latest_regime),
         "flowCandidates": _records(flow),
         "riskCandidates": _records(risk),
+        "fundFlow": _build_fund_flow_summary(data_dir, latest_regime),
         "alerts": _build_alerts(flow, risk, latest_regime, sigma_history),
         "matchedSectors": _records(matched),
         "garchParams": _records(garch),

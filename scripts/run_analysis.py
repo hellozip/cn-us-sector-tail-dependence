@@ -28,7 +28,7 @@ from sector_tail_risk.signals import (  # noqa: E402
     build_latest_regime,
     build_risk_contagion_candidates,
 )
-from sector_tail_risk.yahoo import fetch_prices  # noqa: E402
+from sector_tail_risk.yahoo import fetch_price_volume  # noqa: E402
 
 
 def _date_arg(value: str) -> date:
@@ -46,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-obs", type=int, default=500, help="Minimum pairwise observations")
     parser.add_argument("--output", default=str(PROJECT_ROOT / "outputs" / "latest"))
     parser.add_argument("--prices", default="", help="Optional existing price CSV to skip network fetching")
+    parser.add_argument("--volumes", default="", help="Optional existing volume CSV to skip network fetching")
     parser.add_argument("--no-garch", action="store_true", help="Use raw returns instead of GARCH-standardized residuals")
     return parser.parse_args()
 
@@ -63,9 +64,10 @@ def main() -> None:
 
     if args.prices:
         prices = pd.read_csv(args.prices, index_col=0, parse_dates=True)
+        volumes = pd.read_csv(args.volumes, index_col=0, parse_dates=True) if args.volumes else pd.DataFrame(index=prices.index)
         yahoo_meta = pd.DataFrame()
     else:
-        prices, yahoo_meta = fetch_prices(assets, start, end)
+        prices, volumes, yahoo_meta = fetch_price_volume(assets, start, end)
 
     returns = compute_log_returns(prices)
     coverage = coverage_table(prices, returns, assets)
@@ -102,6 +104,9 @@ def main() -> None:
     cvine_order, cvine_edges = cvine_order_from_matrix(lower_tail_matrix)
 
     prices.to_csv(output_dir / "prices.csv", encoding="utf-8-sig")
+    if not volumes.empty:
+        volumes.to_csv(output_dir / "volumes.csv", encoding="utf-8-sig")
+        prices.mul(volumes).to_csv(output_dir / "turnover_amount.csv", encoding="utf-8-sig")
     returns.to_csv(output_dir / "returns.csv", encoding="utf-8-sig")
     analysis_input.to_csv(output_dir / "standardized_residuals.csv", encoding="utf-8-sig")
     sigma.to_csv(output_dir / "garch_conditional_sigma.csv", encoding="utf-8-sig")
