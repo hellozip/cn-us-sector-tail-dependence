@@ -76,6 +76,10 @@ main {
   padding: 22px clamp(18px, 4vw, 56px) 36px;
 }
 
+.top-signals {
+  margin-top: 0;
+}
+
 .toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -148,13 +152,14 @@ input {
   font-size: 22px;
 }
 
-.fund-flow-panel {
+.overview-panel {
   margin: 18px 0;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow);
-  overflow: hidden;
+}
+
+.overview-kpis {
+  margin: 0;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
 }
 
 .fund-flow-stats {
@@ -163,6 +168,39 @@ input {
   gap: 10px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
+}
+
+.overview-body {
+  display: grid;
+  grid-template-columns: minmax(440px, 0.9fr) minmax(520px, 1.1fr);
+  gap: 0;
+}
+
+.overview-subsection {
+  min-width: 0;
+}
+
+.overview-subsection + .overview-subsection {
+  border-left: 1px solid var(--line);
+}
+
+.overview-subheading {
+  min-height: 82px;
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfe;
+}
+
+.overview-subheading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.overview-subheading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .flow-stat {
@@ -551,6 +589,15 @@ body.modal-open {
   .signal-actions,
   .section-grid {
     grid-template-columns: 1fr;
+  }
+
+  .overview-body {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-subsection + .overview-subsection {
+    border-left: 0;
+    border-top: 1px solid var(--line);
   }
 
   .app-header {

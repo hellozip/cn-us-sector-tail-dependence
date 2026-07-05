@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中美板块资金流向雷达</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260705-fundflow2" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260705-top-overview" />
 </head>
 <body>
   <header class="app-header">
@@ -17,6 +17,24 @@
   </header>
 
   <main>
+    <section class="signal-actions top-signals" aria-label="机会与风险提示">
+      <button id="openOpportunity" class="signal-card opportunity" type="button">
+        <span>机会提示</span>
+        <strong id="opportunityCount">0</strong>
+        <small id="opportunitySummary">查看下一步可能承接资金扩散的板块</small>
+      </button>
+      <button id="openRisk" class="signal-card risk" type="button">
+        <span>风险提示</span>
+        <strong id="riskCount">0</strong>
+        <small id="riskSummary">查看下跌传导和短线过热回调风险</small>
+      </button>
+      <button id="openVolatility" class="signal-card volatility" type="button">
+        <span>波动异常</span>
+        <strong id="volatilityCount">0</strong>
+        <small id="volatilitySummary">查看 GARCH 波动率显著偏离常态的板块</small>
+      </button>
+    </section>
+
     <section class="toolbar" aria-label="刷新分析">
       <label>
         开始日期
@@ -38,46 +56,35 @@
       <span id="statusText" class="status-text">读取中...</span>
     </section>
 
-    <section class="fund-flow-panel" aria-label="板块资金流入流出综述">
+    <section class="panel overview-panel" aria-label="板块综述">
       <div class="panel-heading">
         <div>
-          <p class="eyebrow">资金流入流出代理指标</p>
-          <h2>板块资金流入流出综述</h2>
-          <p id="fundFlowMethod">按涨跌幅加权成交额估算板块资金流压力，并按流入流出占比排序。</p>
+          <p class="eyebrow">板块综述</p>
+          <h2>最新板块状态与资金流入流出综述</h2>
+          <p>同步查看最新交易日的 GARCH 状态、板块强弱分位和资金流压力排名。</p>
         </div>
       </div>
+      <section class="kpis overview-kpis" id="kpis"></section>
       <div id="fundFlowStats" class="fund-flow-stats"></div>
-      <div id="fundFlowTable" class="table-wrap"></div>
-    </section>
-
-    <section class="kpis" id="kpis"></section>
-
-    <section class="signal-actions" aria-label="机会与风险提示">
-      <button id="openOpportunity" class="signal-card opportunity" type="button">
-        <span>机会提示</span>
-        <strong id="opportunityCount">0</strong>
-        <small id="opportunitySummary">查看下一步可能承接资金扩散的板块</small>
-      </button>
-      <button id="openRisk" class="signal-card risk" type="button">
-        <span>风险提示</span>
-        <strong id="riskCount">0</strong>
-        <small id="riskSummary">查看下跌传导和短线过热回调风险</small>
-      </button>
-      <button id="openVolatility" class="signal-card volatility" type="button">
-        <span>波动异常</span>
-        <strong id="volatilityCount">0</strong>
-        <small id="volatilitySummary">查看 GARCH 波动率显著偏离常态的板块</small>
-      </button>
+      <div class="overview-body">
+        <div class="overview-subsection">
+          <div class="overview-subheading">
+            <h3>最新板块状态</h3>
+            <p>根据最新交易日的 GARCH 标准化残差历史分位数划分。</p>
+          </div>
+          <div id="latestTable" class="table-wrap"></div>
+        </div>
+        <div class="overview-subsection">
+          <div class="overview-subheading">
+            <h3>资金流入流出排名</h3>
+            <p id="fundFlowMethod">按涨跌幅加权成交额估算板块资金流压力，并按流入流出占比排序。</p>
+          </div>
+          <div id="fundFlowTable" class="table-wrap"></div>
+        </div>
+      </div>
     </section>
 
     <section class="section-grid">
-      <div class="panel wide">
-        <div class="panel-heading">
-          <h2>最新板块状态</h2>
-          <p>根据最新交易日的 GARCH 标准化残差历史分位数划分。</p>
-        </div>
-        <div id="latestTable" class="table-wrap"></div>
-      </div>
       <div class="panel">
         <div class="panel-heading">
           <h2>潜在流向候选</h2>
@@ -140,6 +147,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260705-fundflow2"></script>
+  <script src="/static/app.js?v=20260705-top-overview"></script>
 </body>
 </html>
