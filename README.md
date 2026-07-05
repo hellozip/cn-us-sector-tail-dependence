@@ -115,6 +115,9 @@ outputs/latest/
 - `latest_regime_alpha_0.05.csv`: 最新交易日每个板块的标准化残差、历史分位数和区间状态。
 - `flow_candidates_alpha_0.05.csv`: 基于最新强势板块和历史相关性的潜在流向候选。
 - `risk_contagion_candidates_alpha_0.05.csv`: 基于最新弱势板块和历史下尾相关性的风险传导候选。
+- `fund_flow_amount.csv`: 可选外部输入，真实净流入/净流出金额；项目不会用 Yahoo 成交量或涨跌幅伪造该数据。
+- `sector_total_size.csv`: 可选外部输入，板块总规模、ETF AUM 或行业总市值口径，用作真实资金流占比分母。
+- `fund_flow_sources.csv`: 可选外部输入，逐板块注明资金流金额来源、总规模来源、币种和口径说明。
 - `lower_tail_dependence.svg`: 下尾相关性热力图。
 - `upper_tail_dependence.svg`: 上尾相关性热力图。
 - `middle_pearson_correlation.svg`: 中间部分 Pearson 相关性热力图。
@@ -129,7 +132,28 @@ outputs/latest/
 
 ## Web Dashboard
 
-项目包含一个可部署到 Render 的前端看板，用来查看最新板块状态、板块资金流入流出综述、潜在流向、风险传导、GARCH 参数和相关性热力图。资金流综述使用“当日收益率 × 收盘价 × 成交量”构造涨跌幅加权成交额，并按“资金流金额 / 该板块当日成交额代理值”的流入流出占比排序，同时对比上一交易日排名生成上升/下降箭头。页面也提供可点击的“机会提示”“风险提示”和“波动异常”弹窗：机会提示关注下一步可能承接资金扩散的板块，风险提示同时覆盖下尾传导风险和短线过热回调风险，波动异常基于 GARCH 条件波动率的历史分位数识别当前显著偏离自身常态波动的板块。
+项目包含一个可部署到 Render 的前端看板，用来查看最新板块状态、真实板块资金流入流出综述、潜在流向、风险传导、GARCH 参数和相关性热力图。资金流综述只读取外部接入的真实资金流数据：`fund_flow_amount.csv` 提供真实净流入/净流出金额，`sector_total_size.csv` 提供该板块总规模，流入流出占比为“真实净流入/净流出金额 / 该板块总规模”，并对比上一交易日排名生成上升/下降箭头。若未配置这些文件，页面会明确显示未配置真实来源，不会用“收益率 × 成交额”替代真实资金流。页面也提供可点击的“机会提示”“风险提示”和“波动异常”弹窗：机会提示关注下一步可能承接资金扩散的板块，风险提示同时覆盖下尾传导风险和短线过热回调风险，波动异常基于 GARCH 条件波动率的历史分位数识别当前显著偏离自身常态波动的板块。
+
+真实资金流输入支持两种格式。宽表格式：
+
+```csv
+date,US_SEMICONDUCTOR,CN_SEMICONDUCTOR
+2026-07-02,-585876190,120000000
+```
+
+长表格式：
+
+```csv
+date,id,flow_amount
+2026-07-02,US_SEMICONDUCTOR,-585876190
+```
+
+`sector_total_size.csv` 同样支持宽表，或长表字段 `date,id,total_size`。`fund_flow_sources.csv` 建议字段：
+
+```csv
+id,flow_source,total_size_source,currency,notes
+US_SEMICONDUCTOR,数据商/ETF净申赎/券商资金流口径,ETF AUM或行业总市值来源,USD,说明统计口径和更新时间
+```
 
 本地运行：
 

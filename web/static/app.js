@@ -175,9 +175,9 @@ function renderFundFlow(fundFlow) {
   const tableTarget = document.getElementById("fundFlowTable");
   const methodTarget = document.getElementById("fundFlowMethod");
   if (!fundFlow || !fundFlow.available) {
-    methodTarget.textContent = fundFlow?.method || "暂无资金流数据。刷新分析后可生成成交量驱动的资金流代理指标。";
+    methodTarget.textContent = fundFlow?.method || "未配置真实资金流来源。";
     statsTarget.innerHTML = "";
-    tableTarget.innerHTML = '<div class="empty">暂无资金流入流出数据</div>';
+    tableTarget.innerHTML = '<div class="empty">未配置真实资金流金额、板块总规模和来源说明</div>';
     return;
   }
 
@@ -187,9 +187,9 @@ function renderFundFlow(fundFlow) {
   const netClass = Number(fundFlow.net_flow_amount || 0) >= 0 ? "flow-positive" : "flow-negative";
   const stats = [
     { label: "日期", value: fundFlow.as_of_date || "暂无" },
-    { label: "净流入压力", value: fmtMoney(fundFlow.net_flow_amount), className: netClass },
-    { label: "流入合计", value: fmtMoney(fundFlow.total_inflow_amount), className: "flow-positive" },
-    { label: "流出合计", value: fmtMoney(fundFlow.total_outflow_amount), className: "flow-negative" },
+    { label: "真实净流入", value: fmtMoney(fundFlow.net_flow_amount), className: netClass },
+    { label: "真实流入合计", value: fmtMoney(fundFlow.total_inflow_amount), className: "flow-positive" },
+    { label: "真实流出合计", value: fmtMoney(fundFlow.total_outflow_amount), className: "flow-negative" },
     { label: "最大流入", value: largestInflow, className: "flow-positive" },
     { label: "最大流出", value: largestOutflow, className: "flow-negative" },
   ];
@@ -199,23 +199,26 @@ function renderFundFlow(fundFlow) {
 
   const rows = fundFlow.rows || [];
   if (rows.length === 0) {
-    tableTarget.innerHTML = '<div class="empty">暂无资金流入流出数据</div>';
+    tableTarget.innerHTML = '<div class="empty">暂无真实资金流入流出数据</div>';
     return;
   }
   const body = rows.map((row) => {
     const amount = Number(row.flow_amount || 0);
     const flowClass = amount >= 0 ? "flow-positive" : "flow-negative";
+    const returnClass = Number(row.latest_return || 0) >= 0 ? "flow-positive" : "flow-negative";
     const arrow = row.rank_arrow || "";
+    const sourceText = [row.flow_source, row.total_size_source].filter(Boolean).join(" / ");
     return `
       <tr>
         <td>${row.rank}</td>
         <td>${escapeHtml(row.label || assetCodeLabel(row.id))}</td>
         <td class="${flowClass}">${fmtMoney(row.flow_amount)}</td>
         <td class="${flowClass}">${fmtPct(row.flow_ratio)}</td>
-        <td>${fmtMoney(row.turnover_amount)}</td>
-        <td class="${flowClass}">${fmtPct(row.latest_return)}</td>
+        <td>${fmtMoney(row.total_size)}</td>
+        <td class="${returnClass}">${fmtPct(row.latest_return)}</td>
         <td><span class="rank-arrow ${rankArrowClass(arrow)}">${escapeHtml(arrow)}</span></td>
         <td>${row.previous_rank ?? row.rank}</td>
+        <td>${escapeHtml(sourceText || "未注明")}</td>
       </tr>
     `;
   }).join("");
@@ -225,12 +228,13 @@ function renderFundFlow(fundFlow) {
         <tr>
           <th>排名</th>
           <th>板块</th>
-          <th>流入/流出金额</th>
-          <th>流入/流出占比</th>
-          <th>成交额</th>
+          <th>真实流入/流出金额</th>
+          <th>占板块总规模</th>
+          <th>板块总规模</th>
           <th>当日收益</th>
           <th>排名变化</th>
           <th>昨日排名</th>
+          <th>来源</th>
         </tr>
       </thead>
       <tbody>${body}</tbody>

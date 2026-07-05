@@ -164,6 +164,37 @@ def _read_timeseries(path: Path) -> pd.DataFrame:
     return pd.read_csv(path, index_col=0, parse_dates=True)
 
 
+def _read_metric_timeseries(path: Path, value_names: list[str]) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame()
+    raw = pd.read_csv(path)
+    lower_columns = {str(column).lower(): column for column in raw.columns}
+    if {"date", "id"}.issubset(lower_columns):
+        value_column = next((lower_columns[name] for name in value_names if name in lower_columns), None)
+        if value_column is None:
+            return pd.DataFrame()
+        date_column = lower_columns["date"]
+        id_column = lower_columns["id"]
+        frame = raw[[date_column, id_column, value_column]].copy()
+        frame[date_column] = pd.to_datetime(frame[date_column])
+        frame[value_column] = pd.to_numeric(frame[value_column], errors="coerce")
+        return frame.pivot_table(index=date_column, columns=id_column, values=value_column, aggfunc="last").sort_index()
+    if raw.empty:
+        return pd.DataFrame()
+    date_column = raw.columns[0]
+    raw[date_column] = pd.to_datetime(raw[date_column])
+    return raw.set_index(date_column).apply(pd.to_numeric, errors="coerce").sort_index()
+
+
+def _read_fund_flow_sources(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    frame = pd.read_csv(path).replace({np.nan: None})
+    if "id" not in frame.columns:
+        return {}
+    return {str(row["id"]): row for row in frame.to_dict(orient="records")}
+
+
 def _records(frame: pd.DataFrame) -> list[dict]:
     if frame.empty:
         return []
@@ -442,65 +473,72 @@ def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.Data
 
 
 def _flow_ranking_for_date(
-    flow_pressure: pd.DataFrame,
+    fund_flow: pd.DataFrame,
+    total_size: pd.DataFrame,
     turnover: pd.DataFrame,
     returns: pd.DataFrame,
     when: pd.Timestamp,
 ) -> pd.DataFrame:
-    if when not in flow_pressure.index:
+    if when not in fund_flow.index:
         return pd.DataFrame()
-    amount = pd.to_numeric(flow_pressure.loc[when], errors="coerce")
-    amount = amount.reindex(flow_pressure.columns).fillna(0.0)
+    amount = pd.to_numeric(fund_flow.loc[when], errors="coerce")
+    amount = amount.reindex(fund_flow.columns).dropna()
     if amount.empty:
         return pd.DataFrame()
     frame = pd.DataFrame({"id": amount.index, "flow_amount": amount.values})
+    if when in total_size.index:
+        frame["total_size"] = frame["id"].map(pd.to_numeric(total_size.loc[when], errors="coerce").to_dict())
+    else:
+        frame["total_size"] = np.nan
+    frame["flow_ratio"] = np.where(
+        frame["total_size"] > 0,
+        frame["flow_amount"] / frame["total_size"],
+        np.nan,
+    )
+    frame["flow_ratio"] = pd.to_numeric(frame["flow_ratio"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    frame = frame.dropna(subset=["flow_ratio"])
+    if frame.empty:
+        return pd.DataFrame()
     if when in turnover.index:
         frame["turnover_amount"] = frame["id"].map(pd.to_numeric(turnover.loc[when], errors="coerce").to_dict())
     else:
         frame["turnover_amount"] = np.nan
-    frame["flow_ratio"] = np.where(
-        frame["turnover_amount"] > 0,
-        frame["flow_amount"] / frame["turnover_amount"],
-        np.nan,
-    )
-    frame["flow_ratio"] = pd.to_numeric(frame["flow_ratio"], errors="coerce").replace([np.inf, -np.inf], np.nan)
-    if frame["flow_ratio"].notna().sum() == 0:
-        return pd.DataFrame()
     if when in returns.index:
         frame["latest_return"] = frame["id"].map(pd.to_numeric(returns.loc[when], errors="coerce").to_dict())
     else:
         frame["latest_return"] = np.nan
-    frame = frame.sort_values("flow_ratio", ascending=False, na_position="last").reset_index(drop=True)
+    frame = frame.sort_values("flow_ratio", ascending=False).reset_index(drop=True)
     frame["rank"] = frame.index + 1
     return frame
 
 
 def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit: int = 20) -> dict:
-    prices = _read_timeseries(data_dir / "prices.csv")
     returns = _read_timeseries(data_dir / "returns.csv")
-    volumes = _read_timeseries(data_dir / "volumes.csv")
+    fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
+    total_size = _read_metric_timeseries(data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
     turnover = _read_timeseries(data_dir / "turnover_amount.csv")
+    sources = _read_fund_flow_sources(data_dir / "fund_flow_sources.csv")
 
-    if turnover.empty and not prices.empty and not volumes.empty:
-        turnover = prices.mul(volumes)
-
-    if returns.empty or turnover.empty:
+    if fund_flow.empty or total_size.empty:
         return {
             "available": False,
-            "method": "需要成交量数据。点击刷新分析后，系统会从 Yahoo 图表接口抓取成交量并生成资金流代理指标。",
+            "method": "未配置真实资金流来源。请提供 fund_flow_amount.csv（真实净流入/净流出金额）、sector_total_size.csv（板块总规模/AUM/市值口径）和 fund_flow_sources.csv（来源说明）。当前不会用收益率×成交额替代真实资金流。",
             "rows": [],
         }
 
-    common_index = returns.index.intersection(turnover.index)
+    common_index = fund_flow.index.intersection(total_size.index)
     if common_index.empty:
-        return {"available": False, "method": "收益率与成交额日期无法对齐。", "rows": []}
+        return {"available": False, "method": "真实资金流与板块总规模日期无法对齐。", "rows": []}
 
-    returns = returns.loc[common_index]
-    turnover = turnover.loc[common_index]
-    flow_pressure = returns.mul(turnover)
-    valid_dates = flow_pressure.index[flow_pressure.notna().any(axis=1)]
+    fund_flow = fund_flow.loc[common_index]
+    total_size = total_size.loc[common_index]
+    if not returns.empty:
+        returns = returns.reindex(common_index)
+    if not turnover.empty:
+        turnover = turnover.reindex(common_index)
+    valid_dates = fund_flow.index[fund_flow.notna().any(axis=1) & total_size.notna().any(axis=1)]
     if len(valid_dates) < 1:
-        return {"available": False, "method": "资金流代理指标暂无有效观测。", "rows": []}
+        return {"available": False, "method": "真实资金流或板块总规模暂无有效观测。", "rows": []}
 
     as_of = None
     if not latest_regime.empty and "as_of_date" in latest_regime.columns:
@@ -516,10 +554,10 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     previous_dates = valid_dates[valid_dates < current_date]
     previous_date = previous_dates[-1] if len(previous_dates) else None
 
-    current = _flow_ranking_for_date(flow_pressure, turnover, returns, current_date)
-    previous = _flow_ranking_for_date(flow_pressure, turnover, returns, previous_date) if previous_date is not None else pd.DataFrame()
+    current = _flow_ranking_for_date(fund_flow, total_size, turnover, returns, current_date)
+    previous = _flow_ranking_for_date(fund_flow, total_size, turnover, returns, previous_date) if previous_date is not None else pd.DataFrame()
     if current.empty:
-        return {"available": False, "method": "最新交易日资金流代理指标为空。", "rows": []}
+        return {"available": False, "method": "最新交易日真实资金流或板块总规模为空。", "rows": []}
 
     lookup = _asset_lookup(latest_regime)
     previous_rank = dict(zip(previous["id"], previous["rank"])) if not previous.empty else {}
@@ -543,6 +581,9 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
                 "rank_change": rank_change,
                 "rank_arrow": arrow,
                 "flow_direction": "流入" if (_safe_float(row.get("flow_amount")) or 0) >= 0 else "流出",
+                "flow_source": sources.get(asset_id, {}).get("flow_source") or sources.get(asset_id, {}).get("source") or "未注明",
+                "total_size_source": sources.get(asset_id, {}).get("total_size_source") or sources.get(asset_id, {}).get("size_source") or "未注明",
+                "currency": sources.get(asset_id, {}).get("currency") or "",
             }
         )
 
@@ -562,7 +603,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         "available": True,
         "as_of_date": current_date.date().isoformat(),
         "previous_date": previous_date.date().isoformat() if previous_date is not None else None,
-        "method": "资金流金额为 ETF/指数代理标的的涨跌幅加权成交额：当日收益率 × 收盘价 × 成交量；占比为该值除以该板块当日成交额代理值。正数代表流入压力，负数代表流出压力。中美标的币种未做汇率转换，因此更适合看比例和排名。",
+        "method": "资金流金额来自 fund_flow_amount.csv 中接入的真实净流入/净流出来源；流入/流出占比 = 真实净流入/净流出金额 ÷ sector_total_size.csv 中的该板块总规模。正数代表真实净流入，负数代表真实净流出。不同市场和来源的币种、统计口径必须在 fund_flow_sources.csv 中注明。",
         "total_inflow_amount": total_inflow,
         "total_outflow_amount": total_outflow,
         "net_flow_amount": total_inflow + total_outflow,
