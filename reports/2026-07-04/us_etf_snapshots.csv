@@ -1,0 +1,11 @@
+﻿date,id,ticker,name,price,aum,shares_outstanding,source_url,currency,proxy_note
+2026-07-02,US_ENERGY,XLE,Energy Select Sector SPDR Fund,53.22,39120000000.0,665200000.0,https://stockanalysis.com/etf/xle/,USD,US energy sector ETF proxy
+2026-07-02,US_FINANCIALS,XLF,Financial Select Sector SPDR Fund,55.62,49530000000.0,960650000.0,https://stockanalysis.com/etf/xlf/,USD,US financials sector ETF proxy
+2026-07-02,US_HEALTHCARE,XLV,Health Care Select Sector SPDR Fund,163.74,39240000000.0,257170000.00000003,https://stockanalysis.com/etf/xlv/,USD,US healthcare sector ETF proxy
+2026-07-02,US_INDUSTRIALS,XLI,Industrial Select Sector SPDR Fund,183.91,31070000000.0,155030000.0,https://stockanalysis.com/etf/xli/,USD,US industrials sector ETF proxy
+2026-07-02,US_INTERNET,FDN,First Trust Dow Jones Internet Index Fund,267.05,5080000000.0,18850000.0,https://stockanalysis.com/etf/fdn/,USD,US internet equity ETF proxy
+2026-07-02,US_MATERIALS,XLB,Materials Select Sector SPDR Fund,52.01,7830000000.0,159850000.0,https://stockanalysis.com/etf/xlb/,USD,US materials sector ETF proxy
+2026-07-02,US_NEW_ENERGY,QCLN,First Trust Nasdaq Clean Edge Green Energy Index Fund,56.71,846300000.0,13750000.0,https://stockanalysis.com/etf/qcln/,USD,US clean energy ETF proxy
+2026-07-02,US_REAL_ESTATE_CHAIN,XHB,SPDR S&P Homebuilders ETF,112.56,1660000000.0,17600000.0,https://stockanalysis.com/etf/xhb/,USD,US housing and real-estate-chain ETF proxy
+2026-07-02,US_SEMICONDUCTOR,SMH,VanEck Semiconductor ETF,592.29,65060000000.0,118190000.0,https://stockanalysis.com/etf/smh/,USD,US listed semiconductor ETF proxy
+2026-07-02,US_UTILITIES,XLU,Utilities Select Sector SPDR Fund,45.76,22550000000.0,517650000.0,https://stockanalysis.com/etf/xlu/,USD,US utilities sector ETF proxy
