@@ -208,7 +208,7 @@ Build Command: pip install -r requirements.txt
 Start Command: gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --timeout 900
 ```
 
-Render 免费实例的磁盘不是长期持久化存储，因此页面刷新后的 `outputs/latest/` 主要用于当前实例查看；仓库内的 `reports/2026-07-04/` 快照会作为稳定兜底数据。线上实例启动后的首次 `/api/dashboard` 请求会自动检查 `outputs/latest/` 是否已有 `fund_flow_amount.csv`、`sector_total_size.csv` 和 `fund_flow_sources.csv`：如果缺失或超过默认 6 小时未更新，会自动运行 `scripts/fetch_real_fund_flows.py` 补抓资金流。页面点击“刷新分析”成功生成新分析后，也会强制重新抓取资金流。可用环境变量 `AUTO_FETCH_FUND_FLOWS=0` 关闭自动补抓，用 `FUND_FLOW_AUTO_REFRESH_SECONDS` 调整刷新间隔，用 `FUND_FLOW_RETRY_SECONDS` 调整失败后的重试冷却。
+Render 免费实例的磁盘不是长期持久化存储，因此页面刷新后的 `outputs/latest/` 主要用于当前实例查看；仓库内的 `reports/2026-07-04/` 快照会作为稳定兜底数据。
 
 ## Included Snapshot
 

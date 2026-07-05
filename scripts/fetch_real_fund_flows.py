@@ -517,6 +517,8 @@ def _write_or_remove(frame: pd.DataFrame, path: Path) -> None:
 
 def _write_metric_history(frame: pd.DataFrame, path: Path, keys: list[str]) -> None:
     if frame.empty:
+        if path.exists():
+            path.unlink()
         return
     current = frame.copy()
     if path.exists():
