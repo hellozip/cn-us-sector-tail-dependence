@@ -6,6 +6,17 @@
 - 上尾相关性：两个板块是否容易在极端上涨时一起涨。
 - 中间部分相关性：剔除两端极端行情后，两个板块在常态市场中的联动程度。
 
+当前默认流程会先使用 `GARCH(1,1)` 消除条件波动率，再对标准化残差做相关性和经验 Copula 分析：
+
+```text
+raw price
+-> log return
+-> GARCH(1,1) conditional volatility
+-> standardized residual = (return - mean) / sigma_t
+-> lower / upper / middle dependence analysis
+-> latest regime and possible flow candidates
+```
+
 默认板块池去掉“消费”，保留“互联网”，共 10 个板块：
 
 - Internet
@@ -23,6 +34,8 @@
 
 项目默认使用 Yahoo Finance 日度复权价格，计算对数收益率，并输出：
 
+- GARCH(1,1)-standardized residuals
+- GARCH parameter table
 - Pearson correlation
 - Spearman rank correlation
 - Empirical lower-tail dependence
@@ -32,6 +45,9 @@
 - Co-rally lift versus independence
 - Cross-market same-sector comparison
 - Empirical C-Vine ordering based on lower-tail dependence
+- Latest sector regime classification
+- Potential flow candidates inferred from latest data and historical dependence
+- Downside contagion watchlist
 
 核心定义：
 
@@ -92,6 +108,11 @@ outputs/latest/
 关键输出：
 
 - `report.html`: 可直接打开的 HTML 报告。
+- `garch_params.csv`: 每个板块的 GARCH(1,1) 参数。
+- `standardized_residuals.csv`: GARCH 标准化残差，相关性分析默认使用这个矩阵。
+- `latest_regime_alpha_0.05.csv`: 最新交易日每个板块的标准化残差、历史分位数和区间状态。
+- `flow_candidates_alpha_0.05.csv`: 基于最新强势板块和历史相关性的潜在流向候选。
+- `risk_contagion_candidates_alpha_0.05.csv`: 基于最新弱势板块和历史下尾相关性的风险传导候选。
 - `lower_tail_dependence.svg`: 下尾相关性热力图。
 - `upper_tail_dependence.svg`: 上尾相关性热力图。
 - `middle_pearson_correlation.svg`: 中间部分 Pearson 相关性热力图。
@@ -124,15 +145,19 @@ pip install -r requirements.txt
 
 当前实现不需要 `yfinance`、`scipy` 或 `arch`。Yahoo 数据通过 chart API 抓取，热力图用项目内置 SVG 生成器输出。
 
+GARCH(1,1) 使用项目内置的正态 QMLE 估计器，不依赖外部 `arch` 包。它的目标是先剥离条件波动率，再做相关性结构分析。
+
 ## Notes For Investment Use
 
 这个项目适合做组合风险研究：
 
+- 今天哪个板块进入 GARCH 标准化后的上尾/下尾状态。
 - 哪些中美板块在极端下跌时容易一起跌。
 - 哪些中美板块在极端上涨时一起涨。
 - 哪些板块在常态行情中相关性高，但在尾部行情中不同步。
 - 哪些板块平时看似分散，但在极端行情中会突然共振。
 - 当前持仓是否集中暴露在同一个尾部风险簇。
+- 如果今天某个板块成为上尾强势板块，历史上哪些板块更容易跟随。
 
 它不适合直接当成买卖信号。低相关不等于一定会上涨，高尾部相关也不等于不能持有；它只说明这些资产在不同市场状态中的组合风险关系。
 

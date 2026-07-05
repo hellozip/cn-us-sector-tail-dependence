@@ -21,7 +21,13 @@ from sector_tail_risk.analytics import (  # noqa: E402
     pairwise_tail_metrics,
     read_assets,
 )
+from sector_tail_risk.garch import standardize_with_garch  # noqa: E402
 from sector_tail_risk.report import write_html_report, write_svg_heatmap  # noqa: E402
+from sector_tail_risk.signals import (  # noqa: E402
+    build_flow_candidates,
+    build_latest_regime,
+    build_risk_contagion_candidates,
+)
 from sector_tail_risk.yahoo import fetch_prices  # noqa: E402
 
 
@@ -40,6 +46,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-obs", type=int, default=500, help="Minimum pairwise observations")
     parser.add_argument("--output", default=str(PROJECT_ROOT / "outputs" / "latest"))
     parser.add_argument("--prices", default="", help="Optional existing price CSV to skip network fetching")
+    parser.add_argument("--no-garch", action="store_true", help="Use raw returns instead of GARCH-standardized residuals")
     return parser.parse_args()
 
 
@@ -62,7 +69,25 @@ def main() -> None:
 
     returns = compute_log_returns(prices)
     coverage = coverage_table(prices, returns, assets)
-    metrics = pairwise_tail_metrics(returns, assets, alpha=args.alpha, min_obs=args.min_obs)
+    if args.no_garch:
+        analysis_input = returns.copy()
+        sigma = pd.DataFrame(index=returns.index, columns=returns.columns, dtype=float)
+        garch_params = pd.DataFrame(
+            {
+                "id": returns.columns,
+                "status": "disabled",
+                "observations": [int(returns[column].notna().sum()) for column in returns.columns],
+            }
+        )
+        input_label = "raw log returns"
+    else:
+        analysis_input, sigma, garch_params = standardize_with_garch(returns, min_obs=args.min_obs)
+        input_label = "GARCH(1,1)-standardized residuals"
+
+    metrics = pairwise_tail_metrics(analysis_input, assets, alpha=args.alpha, min_obs=args.min_obs)
+    latest_regime = build_latest_regime(analysis_input, returns, sigma, assets, alpha=args.alpha)
+    flow_candidates = build_flow_candidates(metrics, latest_regime)
+    risk_candidates = build_risk_contagion_candidates(metrics, latest_regime)
 
     asset_ids = assets["id"].tolist()
     lower_tail_matrix = metric_matrix(metrics, asset_ids, "lower_tail_dependence", diagonal=1.0)
@@ -78,6 +103,9 @@ def main() -> None:
 
     prices.to_csv(output_dir / "prices.csv", encoding="utf-8-sig")
     returns.to_csv(output_dir / "returns.csv", encoding="utf-8-sig")
+    analysis_input.to_csv(output_dir / "standardized_residuals.csv", encoding="utf-8-sig")
+    sigma.to_csv(output_dir / "garch_conditional_sigma.csv", encoding="utf-8-sig")
+    garch_params.to_csv(output_dir / "garch_params.csv", index=False, encoding="utf-8-sig")
     assets.to_csv(output_dir / "asset_config_used.csv", index=False, encoding="utf-8-sig")
     if not yahoo_meta.empty:
         yahoo_meta.to_csv(output_dir / "yahoo_metadata.csv", index=False, encoding="utf-8-sig")
@@ -94,6 +122,9 @@ def main() -> None:
     spearman_matrix.to_csv(output_dir / "spearman_matrix.csv", encoding="utf-8-sig")
     cvine_order.to_csv(output_dir / "cvine_empirical_order.csv", index=False, encoding="utf-8-sig")
     cvine_edges.to_csv(output_dir / "cvine_empirical_edges.csv", index=False, encoding="utf-8-sig")
+    latest_regime.to_csv(output_dir / f"latest_regime_alpha_{args.alpha:.2f}.csv", index=False, encoding="utf-8-sig")
+    flow_candidates.to_csv(output_dir / f"flow_candidates_alpha_{args.alpha:.2f}.csv", index=False, encoding="utf-8-sig")
+    risk_candidates.to_csv(output_dir / f"risk_contagion_candidates_alpha_{args.alpha:.2f}.csv", index=False, encoding="utf-8-sig")
 
     heatmaps = [
         (lower_tail_matrix, "lower_tail_dependence.svg", f"Lower-tail dependence, alpha={args.alpha:.0%}", False, ".2f"),
@@ -117,14 +148,22 @@ def main() -> None:
         metrics=metrics,
         matched=matched,
         cvine_order=cvine_order,
+        garch_params=garch_params,
+        latest_regime=latest_regime,
+        flow_candidates=flow_candidates,
+        risk_candidates=risk_candidates,
         alpha=args.alpha,
         start=start.isoformat(),
         end=end.isoformat(),
         heatmap_files=heatmap_names,
+        input_label=input_label,
     )
 
     print(f"Done. Report: {output_dir / 'report.html'}")
-    print(f"Rows: prices={prices.shape}, returns={returns.shape}, pair_metrics={metrics.shape}")
+    print(
+        f"Rows: prices={prices.shape}, returns={returns.shape}, "
+        f"analysis_input={analysis_input.shape}, pair_metrics={metrics.shape}"
+    )
 
 
 if __name__ == "__main__":

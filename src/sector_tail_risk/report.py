@@ -104,7 +104,10 @@ def write_svg_heatmap(
 def _table_html(df: pd.DataFrame, columns: list[str], n: int = 20) -> str:
     if df.empty:
         return "<p>No rows.</p>"
-    view = df.loc[:, columns].head(n).copy()
+    available = [column for column in columns if column in df.columns]
+    if not available:
+        return "<p>No matching columns.</p>"
+    view = df.loc[:, available].head(n).copy()
     for col in view.select_dtypes(include=[float]).columns:
         view[col] = view[col].map(lambda x: "" if pd.isna(x) else f"{x:.4f}")
     return view.to_html(index=False, escape=True, border=0, classes="data-table")
@@ -117,10 +120,15 @@ def write_html_report(
     metrics: pd.DataFrame,
     matched: pd.DataFrame,
     cvine_order: pd.DataFrame,
+    garch_params: pd.DataFrame,
+    latest_regime: pd.DataFrame,
+    flow_candidates: pd.DataFrame,
+    risk_candidates: pd.DataFrame,
     alpha: float,
     start: str,
     end: str,
     heatmap_files: list[str],
+    input_label: str,
 ) -> None:
     output_path = Path(output_path)
     lower_cols = [
@@ -167,6 +175,40 @@ def write_html_report(
         "pearson",
         "spearman",
     ]
+    garch_cols = [
+        "id",
+        "status",
+        "mean",
+        "omega",
+        "alpha",
+        "beta",
+        "persistence",
+        "observations",
+    ]
+    latest_cols = [
+        "as_of_date",
+        "id",
+        "market",
+        "sector",
+        "latest_return",
+        "garch_sigma",
+        "standardized_residual",
+        "empirical_percentile",
+        "regime",
+        "regime_strength",
+    ]
+    signal_cols = [
+        "signal_type",
+        "source_id",
+        "target_id",
+        "source_regime",
+        "target_regime",
+        "source_percentile",
+        "target_percentile",
+        "relation_metric",
+        "score",
+        "interpretation",
+    ]
 
     lower_top = metrics.sort_values("lower_tail_dependence", ascending=False, na_position="last")
     upper_top = metrics.sort_values("upper_tail_dependence", ascending=False, na_position="last")
@@ -199,6 +241,7 @@ def write_html_report(
 <body>
   <h1>China-US Sector Dependence Report</h1>
   <p class="note">Sample window: <code>{escape(start)}</code> to <code>{escape(end)}</code>. Tail alpha = <code>{alpha:.2%}</code>.</p>
+  <p class="note">Dependence input: <code>{escape(input_label)}</code>. The default workflow removes conditional volatility with GARCH before computing empirical Copula dependence.</p>
   <p class="note">
     Lower tail: <code>P(U_i&lt;=alpha, U_j&lt;=alpha) / alpha</code>.
     Upper tail: <code>P(U_i&gt;=1-alpha, U_j&gt;=1-alpha) / alpha</code>.
@@ -209,6 +252,18 @@ def write_html_report(
   <div class="grid">
     {''.join(f'<div><img src="{escape(name)}" alt="{escape(name)}"></div>' for name in heatmap_files)}
   </div>
+
+  <h2>Latest GARCH-Standardized Regime</h2>
+  <p class="note">The latest row classifies each sector by today's standardized residual percentile versus its own historical GARCH-standardized residual distribution.</p>
+  {_table_html(latest_regime, latest_cols, 30)}
+
+  <h2>Potential Flow Candidates</h2>
+  <p class="note">Candidates are inferred from current upper-tail or positive middle-regime leaders and their historical upper-tail or middle-market dependence with other sectors. These are follow-through candidates, not deterministic forecasts.</p>
+  {_table_html(flow_candidates, signal_cols, 30)}
+
+  <h2>Downside Contagion Watchlist</h2>
+  <p class="note">This table uses current lower-tail stress and historical lower-tail dependence to flag sectors that may share downside pressure.</p>
+  {_table_html(risk_candidates, signal_cols, 30)}
 
   <h2>Highest Lower-Tail Co-Crash Dependence</h2>
   {_table_html(lower_top, lower_cols, 25)}
@@ -231,6 +286,9 @@ def write_html_report(
   <h2>Lower-Tail Empirical C-Vine Order</h2>
   <p class="note">This non-parametric ordering uses the lower-tail dependence matrix to identify assets that behave like co-crash hubs. It is not a full parameterized C-Vine Copula fit.</p>
   {_table_html(cvine_order, ["rank", "asset_id", "tail_dependence_sum"], 30)}
+
+  <h2>GARCH Parameters</h2>
+  {_table_html(garch_params, garch_cols, 30)}
 
   <h2>Asset Coverage</h2>
   {_table_html(coverage, ["id", "ticker", "first_price_date", "last_price_date", "return_observations", "annualized_return", "annualized_volatility"], 30)}
