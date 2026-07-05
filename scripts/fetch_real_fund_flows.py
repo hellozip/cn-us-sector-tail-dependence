@@ -402,29 +402,43 @@ def build_us_estimated_flow_files(
     size_rows: list[dict] = []
     source_rows: list[dict] = []
     warnings: list[str] = []
-    if current_snapshots.empty or snapshot_history.empty:
+    if snapshot_history.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), warnings
+    if not {"date", "id"}.issubset(snapshot_history.columns):
+        warnings.append("美股 ETF 快照缺少 date/id 字段，无法估算净申赎")
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), warnings
 
     history = snapshot_history.copy()
     history["date"] = pd.to_datetime(history["date"], errors="coerce")
+    history = history[history["date"].notna()].copy()
+    if history.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), warnings
     for column in ["price", "aum", "shares_outstanding"]:
         if column in history.columns:
             history[column] = pd.to_numeric(history[column], errors="coerce")
 
-    for current in current_snapshots.to_dict(orient="records"):
-        asset_id = str(current.get("id"))
+    current_ids: set[str] = set()
+    if not current_snapshots.empty and "id" in current_snapshots.columns:
+        current_ids = set(current_snapshots["id"].dropna().astype(str))
+
+    for asset_id in sorted(history["id"].dropna().astype(str).unique()):
+        asset_history = history[history["id"].astype(str) == asset_id].sort_values("date")
+        asset_history = asset_history.drop_duplicates(subset=["date"], keep="last")
+        if asset_history.empty:
+            continue
+        current = asset_history.iloc[-1].to_dict()
         ticker = str(current.get("ticker") or "")
         current_date = pd.to_datetime(current.get("date"), errors="coerce")
         if pd.isna(current_date):
             warnings.append(f"{ticker} 当前快照日期无效，跳过资金流估算")
             continue
-        asset_history = history[(history["id"].astype(str) == asset_id) & history["date"].notna()].sort_values("date")
-        previous_rows = asset_history[asset_history["date"] < current_date]
-        if previous_rows.empty:
-            warnings.append(f"{ticker} 暂无上一个有效交易日快照，本次只记录 AUM/份额快照，不生成美国资金流金额")
-            source_rows.append(_us_source_row(current, previous_date=None, method="等待下一交易日快照"))
+        current["date"] = current_date.date().isoformat()
+        if len(asset_history) < 2:
+            if asset_id in current_ids:
+                warnings.append(f"{ticker} 暂无上一个有效交易日快照，本次只记录 AUM/份额快照，不生成美国资金流金额")
+                source_rows.append(_us_source_row(current, previous_date=None, method="等待下一交易日快照"))
             continue
-        previous = previous_rows.iloc[-1]
+        previous = asset_history.iloc[-2]
         current_price = _parse_scaled_number(current.get("price"))
         current_aum = _parse_scaled_number(current.get("aum"))
         current_shares = _parse_scaled_number(current.get("shares_outstanding"))
@@ -517,8 +531,6 @@ def _write_or_remove(frame: pd.DataFrame, path: Path) -> None:
 
 def _write_metric_history(frame: pd.DataFrame, path: Path, keys: list[str]) -> None:
     if frame.empty:
-        if path.exists():
-            path.unlink()
         return
     current = frame.copy()
     if path.exists():
@@ -558,6 +570,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--strict", action="store_true", help="Fail if any Eastmoney page cannot be fetched")
     parser.add_argument("--ranking-fallback", action="store_true", help="Use Eastmoney ranking pages if no board codes can be resolved")
     parser.add_argument("--skip-us", action="store_true", help="Skip StockAnalysis US ETF snapshot source")
+    parser.add_argument("--us-only", action="store_true", help="Only fetch StockAnalysis US ETF snapshots and estimated US flows")
     return parser.parse_args()
 
 
@@ -566,17 +579,27 @@ def main() -> None:
     output_dir = Path(args.output)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    mapping = _load_mapping(Path(args.mapping))
-    codes, warnings = _resolve_codes_from_mapping(mapping)
-    if codes:
-        boards, fetch_warnings = fetch_eastmoney_boards_by_code(codes, strict=args.strict)
-        warnings.extend(fetch_warnings)
-    elif args.ranking_fallback:
-        boards, fetch_warnings = fetch_eastmoney_boards(page_size=args.page_size, strict=args.strict)
-        warnings.extend(fetch_warnings)
+    warnings: list[str] = []
+    boards = pd.DataFrame()
+    flow = pd.DataFrame()
+    size = pd.DataFrame()
+    sources = pd.DataFrame()
+    missing = pd.DataFrame()
+    if not args.us_only:
+        mapping = _load_mapping(Path(args.mapping))
+        codes, resolve_warnings = _resolve_codes_from_mapping(mapping)
+        warnings.extend(resolve_warnings)
+        if codes:
+            boards, fetch_warnings = fetch_eastmoney_boards_by_code(codes, strict=args.strict)
+            warnings.extend(fetch_warnings)
+        elif args.ranking_fallback:
+            boards, fetch_warnings = fetch_eastmoney_boards(page_size=args.page_size, strict=args.strict)
+            warnings.extend(fetch_warnings)
+        else:
+            raise RuntimeError("No Eastmoney board codes were configured or resolved from mapping")
+        flow, size, sources, missing = build_real_flow_files(boards, mapping)
     else:
-        raise RuntimeError("No Eastmoney board codes were configured or resolved from mapping")
-    flow, size, sources, missing = build_real_flow_files(boards, mapping)
+        warnings.append("已跳过东方财富中国板块抓取，仅更新美股 ETF 快照和估算资金流")
 
     us_snapshots = pd.DataFrame()
     us_flow = pd.DataFrame()
@@ -600,11 +623,13 @@ def main() -> None:
     combined_size = _concat_nonempty([size, us_size])
     combined_sources = _concat_nonempty([sources, us_sources])
 
-    _write_or_remove(boards, output_dir / "eastmoney_sector_boards.csv")
+    if not args.us_only:
+        _write_or_remove(boards, output_dir / "eastmoney_sector_boards.csv")
     _write_metric_history(combined_flow, output_dir / "fund_flow_amount.csv", ["date", "id"])
     _write_metric_history(combined_size, output_dir / "sector_total_size.csv", ["date", "id"])
     _write_source_rows(combined_sources, output_dir / "fund_flow_sources.csv")
-    _write_or_remove(missing, output_dir / "fund_flow_missing_boards.csv")
+    if not args.us_only:
+        _write_or_remove(missing, output_dir / "fund_flow_missing_boards.csv")
 
     print(f"Fetched Eastmoney boards: {boards.shape[0]}")
     print(f"Mapped real fund flow rows: {flow.shape[0]}")

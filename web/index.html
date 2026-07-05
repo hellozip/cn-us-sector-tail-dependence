@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中美板块资金流向雷达</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260705-real-fund-flow" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260706-us-snapshot-click-fix" />
 </head>
 <body>
   <header class="app-header">
@@ -17,17 +17,17 @@
 
   <main>
     <section class="signal-actions top-signals" aria-label="机会与风险提示">
-      <button id="openOpportunity" class="signal-card opportunity" type="button">
+      <button id="openOpportunity" class="signal-card opportunity" type="button" data-alert="opportunity">
         <span>机会提示</span>
         <strong id="opportunityCount">0</strong>
         <small id="opportunitySummary">查看下一步可能承接资金扩散的板块</small>
       </button>
-      <button id="openRisk" class="signal-card risk" type="button">
+      <button id="openRisk" class="signal-card risk" type="button" data-alert="risk">
         <span>风险提示</span>
         <strong id="riskCount">0</strong>
         <small id="riskSummary">查看下跌传导和短线过热回调风险</small>
       </button>
-      <button id="openVolatility" class="signal-card volatility" type="button">
+      <button id="openVolatility" class="signal-card volatility" type="button" data-alert="volatility">
         <span>波动异常</span>
         <strong id="volatilityCount">0</strong>
         <small id="volatilitySummary">查看 GARCH 波动率显著偏离常态的板块</small>
@@ -146,6 +146,6 @@
     </section>
   </div>
 
-  <script src="/static/app.js?v=20260705-real-fund-flow"></script>
+  <script src="/static/app.js?v=20260706-us-snapshot-click-fix"></script>
 </body>
 </html>

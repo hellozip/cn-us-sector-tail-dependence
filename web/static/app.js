@@ -287,9 +287,6 @@ function renderAlertCards(alerts) {
   document.getElementById("opportunitySummary").textContent = opportunity.summary || "查看下一步可能承接资金扩散的板块";
   document.getElementById("riskSummary").textContent = risk.summary || "查看下跌传导和短线过热回调风险";
   document.getElementById("volatilitySummary").textContent = volatility.summary || "查看 GARCH 波动率显著偏离常态的板块";
-  document.getElementById("openOpportunity").disabled = !opportunity.items || opportunity.items.length === 0;
-  document.getElementById("openRisk").disabled = !risk.items || risk.items.length === 0;
-  document.getElementById("openVolatility").disabled = !volatility.items || volatility.items.length === 0;
 }
 
 function renderAlertItem(item) {
@@ -316,8 +313,14 @@ function renderAlertItem(item) {
 }
 
 function openSignalDialog(type) {
-  const group = currentDashboard?.alerts?.[type];
-  if (!group || !group.items || group.items.length === 0) return;
+  const fallback = {
+    opportunity: { title: "机会提示", summary: "当前没有触发资金扩散机会信号。", items: [] },
+    risk: { title: "风险提示", summary: "当前没有触发风险或过热回调信号。", items: [] },
+    volatility: { title: "波动异常", summary: "当前没有触发 GARCH 波动异常信号。", items: [] },
+  };
+  const group = currentDashboard?.alerts?.[type] || fallback[type];
+  if (!group) return;
+  const items = Array.isArray(group.items) ? group.items : [];
   const dialog = document.getElementById("signalDialog");
   const eyebrow = {
     opportunity: "资金扩散观察",
@@ -327,7 +330,9 @@ function openSignalDialog(type) {
   document.getElementById("signalDialogEyebrow").textContent = eyebrow[type] || "信号提示";
   document.getElementById("signalDialogTitle").textContent = group.title || "提示";
   document.getElementById("signalDialogSummary").textContent = group.summary || "";
-  document.getElementById("signalDialogList").innerHTML = group.items.map(renderAlertItem).join("");
+  document.getElementById("signalDialogList").innerHTML = items.length
+    ? items.map(renderAlertItem).join("")
+    : '<div class="empty">暂无触发项。继续观察最新交易日收益、GARCH 波动率分位和历史相关结构。</div>';
   dialog.hidden = false;
   document.body.classList.add("modal-open");
 }
@@ -392,12 +397,22 @@ function initDates() {
   document.getElementById("endDate").value = iso;
 }
 
+function bindSignalActions() {
+  const actions = document.querySelector(".signal-actions");
+  if (!actions || actions.dataset.bound === "true") return;
+  actions.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-alert]");
+    if (!button || !actions.contains(button)) return;
+    event.preventDefault();
+    openSignalDialog(button.dataset.alert);
+  });
+  actions.dataset.bound = "true";
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   initDates();
   document.getElementById("refreshBtn").addEventListener("click", refreshAnalysis);
-  document.getElementById("openOpportunity").addEventListener("click", () => openSignalDialog("opportunity"));
-  document.getElementById("openRisk").addEventListener("click", () => openSignalDialog("risk"));
-  document.getElementById("openVolatility").addEventListener("click", () => openSignalDialog("volatility"));
+  bindSignalActions();
   document.getElementById("closeSignalDialog").addEventListener("click", closeSignalDialog);
   document.getElementById("signalDialog").addEventListener("click", (event) => {
     if (event.target.id === "signalDialog") closeSignalDialog();

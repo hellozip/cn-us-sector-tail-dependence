@@ -263,6 +263,8 @@ input {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
   margin: 18px 0;
+  position: relative;
+  z-index: 2;
 }
 
 .signal-card {
@@ -275,11 +277,23 @@ input {
   background: var(--panel);
   color: var(--text);
   box-shadow: var(--shadow);
+  cursor: pointer;
+  position: relative;
   text-align: left;
+  touch-action: manipulation;
 }
 
 .signal-card:hover {
   border-color: var(--blue);
+}
+
+.signal-card:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.25);
+  outline-offset: 2px;
+}
+
+.signal-card > * {
+  pointer-events: none;
 }
 
 .signal-card span {
@@ -473,7 +487,7 @@ body.modal-open {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 20;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 24px;
@@ -488,6 +502,8 @@ body.modal-open {
   width: min(980px, 100%);
   max-height: min(820px, 90vh);
   overflow: auto;
+  position: relative;
+  z-index: 101;
   background: var(--panel);
   border-radius: 8px;
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
