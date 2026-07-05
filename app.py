@@ -453,20 +453,24 @@ def _flow_ranking_for_date(
     amount = amount.reindex(flow_pressure.columns).fillna(0.0)
     if amount.empty:
         return pd.DataFrame()
-    total_abs = float(amount.abs().sum())
-    if total_abs <= 0:
-        return pd.DataFrame()
     frame = pd.DataFrame({"id": amount.index, "flow_amount": amount.values})
-    frame["flow_ratio"] = frame["flow_amount"] / total_abs
     if when in turnover.index:
         frame["turnover_amount"] = frame["id"].map(pd.to_numeric(turnover.loc[when], errors="coerce").to_dict())
     else:
         frame["turnover_amount"] = np.nan
+    frame["flow_ratio"] = np.where(
+        frame["turnover_amount"] > 0,
+        frame["flow_amount"] / frame["turnover_amount"],
+        np.nan,
+    )
+    frame["flow_ratio"] = pd.to_numeric(frame["flow_ratio"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+    if frame["flow_ratio"].notna().sum() == 0:
+        return pd.DataFrame()
     if when in returns.index:
         frame["latest_return"] = frame["id"].map(pd.to_numeric(returns.loc[when], errors="coerce").to_dict())
     else:
         frame["latest_return"] = np.nan
-    frame = frame.sort_values("flow_ratio", ascending=False).reset_index(drop=True)
+    frame = frame.sort_values("flow_ratio", ascending=False, na_position="last").reset_index(drop=True)
     frame["rank"] = frame.index + 1
     return frame
 
@@ -558,7 +562,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         "available": True,
         "as_of_date": current_date.date().isoformat(),
         "previous_date": previous_date.date().isoformat() if previous_date is not None else None,
-        "method": "资金流金额为 ETF/指数代理标的的涨跌幅加权成交额：当日收益率 × 收盘价 × 成交量；占比为该值除以全板块绝对值合计。正数代表流入压力，负数代表流出压力。中美标的币种未做汇率转换，因此更适合看比例和排名。",
+        "method": "资金流金额为 ETF/指数代理标的的涨跌幅加权成交额：当日收益率 × 收盘价 × 成交量；占比为该值除以该板块当日成交额代理值。正数代表流入压力，负数代表流出压力。中美标的币种未做汇率转换，因此更适合看比例和排名。",
         "total_inflow_amount": total_inflow,
         "total_outflow_amount": total_outflow,
         "net_flow_amount": total_inflow + total_outflow,
