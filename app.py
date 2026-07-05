@@ -19,6 +19,54 @@ REPORTS_DIR = ROOT / "reports"
 WEB_DIR = ROOT / "web"
 STATIC_DIR = WEB_DIR / "static"
 
+MARKET_LABELS = {
+    "US": "美国",
+    "CN": "中国",
+}
+
+SECTOR_LABELS = {
+    "Internet": "互联网",
+    "Semiconductor": "半导体",
+    "New Energy": "新能源",
+    "Healthcare": "医药",
+    "Financials": "金融",
+    "Real Estate Chain": "地产链",
+    "Energy": "能源",
+    "Materials": "材料",
+    "Industrials": "工业",
+    "Utilities": "公用事业",
+}
+
+ID_SECTOR_LABELS = {
+    "INTERNET": "互联网",
+    "SEMICONDUCTOR": "半导体",
+    "NEW_ENERGY": "新能源",
+    "HEALTHCARE": "医药",
+    "FINANCIALS": "金融",
+    "REAL_ESTATE_CHAIN": "地产链",
+    "ENERGY": "能源",
+    "MATERIALS": "材料",
+    "INDUSTRIALS": "工业",
+    "UTILITIES": "公用事业",
+}
+
+REGIME_LABELS = {
+    "upper_tail": "上尾强势",
+    "lower_tail": "下尾弱势",
+    "middle": "中间区间",
+}
+
+HEATMAP_LABELS = {
+    "lower_tail_dependence.svg": "下尾相关性",
+    "upper_tail_dependence.svg": "上尾相关性",
+    "middle_pearson_correlation.svg": "中间区间 Pearson 相关",
+    "middle_spearman_correlation.svg": "中间区间 Spearman 相关",
+    "lower_co_crash_lift.svg": "共同下跌放大倍数",
+    "upper_co_rally_lift.svg": "共同上涨放大倍数",
+    "pearson_correlation.svg": "全样本 Pearson 相关",
+    "spearman_correlation.svg": "全样本 Spearman 相关",
+}
+
 
 def _json_response(start_response, payload: dict, status: str = "200 OK"):
     body = json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8")
@@ -117,6 +165,201 @@ def _records(frame: pd.DataFrame) -> list[dict]:
     return clean.to_dict(orient="records")
 
 
+def _safe_float(value) -> float | None:
+    try:
+        if pd.isna(value):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _fmt_pct(value) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return "暂无"
+    return f"{number * 100:.1f}%"
+
+
+def _fmt_num(value, digits: int = 3) -> str:
+    number = _safe_float(value)
+    if number is None:
+        return "暂无"
+    return f"{number:.{digits}f}"
+
+
+def _asset_lookup(latest_regime: pd.DataFrame) -> dict[str, dict]:
+    if latest_regime.empty or "id" not in latest_regime.columns:
+        return {}
+    return {str(row["id"]): row for row in _records(latest_regime)}
+
+
+def _asset_label(asset_id: str | None, lookup: dict[str, dict]) -> str:
+    if not asset_id:
+        return "未知板块"
+    row = lookup.get(str(asset_id), {})
+    market = row.get("market") or str(asset_id).split("_", 1)[0]
+    sector = row.get("sector")
+    if not sector and "_" in str(asset_id):
+        sector = str(asset_id).split("_", 1)[1]
+    market_label = MARKET_LABELS.get(str(market), str(market))
+    sector_label = SECTOR_LABELS.get(str(sector), ID_SECTOR_LABELS.get(str(sector), str(sector).replace("_", " ")))
+    return f"{market_label}{sector_label}"
+
+
+def _regime_label(value) -> str:
+    return REGIME_LABELS.get(str(value), str(value) if value is not None else "暂无")
+
+
+def _flow_alerts(flow: pd.DataFrame, latest_regime: pd.DataFrame, limit: int = 6) -> list[dict]:
+    if flow.empty:
+        return []
+    lookup = _asset_lookup(latest_regime)
+    alerts: list[dict] = []
+    for row in _records(flow.head(limit)):
+        source_id = row.get("source_id")
+        target_id = row.get("target_id")
+        source_label = _asset_label(source_id, lookup)
+        target_label = _asset_label(target_id, lookup)
+        relation = _safe_float(row.get("relation_metric"))
+        score = _safe_float(row.get("score"))
+        target_regime = row.get("target_regime")
+        target_note = "目标板块尚未完全确认强势，更适合作为后续承接观察。"
+        if target_regime == "upper_tail":
+            target_note = "目标板块已经进入上尾强势区，说明动量已经确认，但追高回撤风险也更高。"
+        alerts.append(
+            {
+                "type": "opportunity",
+                "subtype": "资金扩散观察",
+                "title": f"{target_label} 可能承接 {source_label} 的扩散",
+                "source_id": source_id,
+                "target_id": target_id,
+                "source_label": source_label,
+                "target_label": target_label,
+                "score": score,
+                "relation_metric": relation,
+                "summary": f"{source_label} 当前偏强，历史上与 {target_label} 的联动较明显。",
+                "reasons": [
+                    f"{source_label} 当前处于{_regime_label(row.get('source_regime'))}，{target_label} 当前处于{_regime_label(target_regime)}。",
+                    f"历史关系强度为 {_fmt_pct(relation)}，综合分数为 {_fmt_num(score)}。",
+                    target_note,
+                ],
+                "watch": "适合作为观察名单：后续若目标板块同步放量走强，说明资金扩散正在被市场确认。",
+            }
+        )
+    return alerts
+
+
+def _contagion_alerts(risk: pd.DataFrame, latest_regime: pd.DataFrame, limit: int = 6) -> list[dict]:
+    if risk.empty:
+        return []
+    lookup = _asset_lookup(latest_regime)
+    alerts: list[dict] = []
+    for row in _records(risk.head(limit)):
+        source_id = row.get("source_id")
+        target_id = row.get("target_id")
+        source_label = _asset_label(source_id, lookup)
+        target_label = _asset_label(target_id, lookup)
+        relation = _safe_float(row.get("relation_metric"))
+        score = _safe_float(row.get("score"))
+        alerts.append(
+            {
+                "type": "risk",
+                "subtype": "下尾传导风险",
+                "title": f"{target_label} 可能受到 {source_label} 的下跌拖累",
+                "source_id": source_id,
+                "target_id": target_id,
+                "source_label": source_label,
+                "target_label": target_label,
+                "score": score,
+                "relation_metric": relation,
+                "summary": f"{source_label} 已进入下尾弱势区，历史上与 {target_label} 存在共同下跌关系。",
+                "reasons": [
+                    f"{source_label} 当前处于{_regime_label(row.get('source_regime'))}，{target_label} 当前处于{_regime_label(row.get('target_regime'))}。",
+                    f"下尾关系强度为 {_fmt_pct(relation)}，风险分数为 {_fmt_num(score)}。",
+                    f"来源板块当日收益为 {_fmt_pct(row.get('source_latest_return'))}，目标板块当日收益为 {_fmt_pct(row.get('target_latest_return'))}。",
+                ],
+                "watch": "适合检查持仓是否集中暴露在同一条下跌传导链上，尤其是同市场、同产业链板块。",
+            }
+        )
+    return alerts
+
+
+def _overheat_alerts(latest_regime: pd.DataFrame, limit: int = 5) -> list[dict]:
+    if latest_regime.empty:
+        return []
+    frame = latest_regime.copy()
+    for column in ["latest_return", "standardized_residual", "empirical_percentile", "regime_strength"]:
+        if column in frame.columns:
+            frame[column] = pd.to_numeric(frame[column], errors="coerce")
+    required = {"latest_return", "standardized_residual", "empirical_percentile", "id"}
+    if not required.issubset(frame.columns):
+        return []
+    hot = frame[
+        (frame["latest_return"] > 0)
+        & (
+            (frame["regime"].eq("upper_tail") if "regime" in frame.columns else False)
+            | (frame["empirical_percentile"] >= 0.95)
+            | (frame["standardized_residual"] >= 1.8)
+        )
+    ].copy()
+    if hot.empty:
+        return []
+    hot["pullback_score"] = (
+        hot["empirical_percentile"].fillna(0) * 2
+        + hot["standardized_residual"].clip(lower=0).fillna(0)
+        + hot["latest_return"].fillna(0) * 20
+    )
+    lookup = _asset_lookup(latest_regime)
+    alerts: list[dict] = []
+    for row in _records(hot.sort_values("pullback_score", ascending=False).head(limit)):
+        asset_id = row.get("id")
+        label = _asset_label(asset_id, lookup)
+        score = _safe_float(row.get("pullback_score"))
+        alerts.append(
+            {
+                "type": "risk",
+                "subtype": "过热回调风险",
+                "title": f"{label} 短线偏离过大，回调风险升高",
+                "source_id": asset_id,
+                "target_id": asset_id,
+                "source_label": label,
+                "target_label": label,
+                "score": score,
+                "relation_metric": None,
+                "summary": f"{label} 当日涨幅和 GARCH 标准残差都偏高，说明走势已经明显偏离自身常态波动。",
+                "reasons": [
+                    f"当日收益为 {_fmt_pct(row.get('latest_return'))}，GARCH 标准残差为 {_fmt_num(row.get('standardized_residual'), 2)}。",
+                    f"历史分位数为 {_fmt_pct(row.get('empirical_percentile'))}，当前处于{_regime_label(row.get('regime'))}。",
+                    "强势不等于立刻看空，但当涨幅远超自身波动水平时，下一步更容易出现回撤、横盘消化或资金轮动。",
+                ],
+                "watch": "如果后续价格不能继续放量确认，优先把它当作追高风险和仓位再平衡提示。",
+            }
+        )
+    return alerts
+
+
+def _build_alerts(flow: pd.DataFrame, risk: pd.DataFrame, latest_regime: pd.DataFrame) -> dict:
+    opportunity_items = _flow_alerts(flow, latest_regime)
+    contagion_items = _contagion_alerts(risk, latest_regime)
+    overheat_items = _overheat_alerts(latest_regime)
+    risk_items = contagion_items + overheat_items
+    return {
+        "opportunity": {
+            "title": "机会提示",
+            "summary": "根据当前强势板块和历史相关结构，筛选下一步可能获得资金扩散的板块。",
+            "count": len(opportunity_items),
+            "items": opportunity_items,
+        },
+        "risk": {
+            "title": "风险提示",
+            "summary": "同时观察下尾传导风险和短线过热回调风险，避免把高波动误读成确定性机会。",
+            "count": len(risk_items),
+            "items": risk_items,
+        },
+    }
+
+
 def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
     for name in names:
         path = data_dir / name
@@ -165,7 +408,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
     heatmaps = [
         {
             "name": name,
-            "label": name.replace("_", " ").replace(".svg", "").title(),
+            "label": HEATMAP_LABELS.get(name, name.replace("_", " ").replace(".svg", "").title()),
             "url": f"/report-assets/{name}",
         }
         for name in heatmap_names
@@ -190,6 +433,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "latestRegime": _records(latest_regime),
         "flowCandidates": _records(flow),
         "riskCandidates": _records(risk),
+        "alerts": _build_alerts(flow, risk, latest_regime),
         "matchedSectors": _records(matched),
         "garchParams": _records(garch),
         "coverage": _records(coverage),

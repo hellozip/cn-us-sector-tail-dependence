@@ -148,6 +148,61 @@ input {
   font-size: 22px;
 }
 
+.signal-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin: 18px 0;
+}
+
+.signal-card {
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+
+.signal-card:hover {
+  border-color: var(--blue);
+}
+
+.signal-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.signal-card strong {
+  font-size: 30px;
+  line-height: 1;
+}
+
+.signal-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.signal-card.opportunity {
+  border-left: 5px solid var(--green);
+}
+
+.signal-card.risk {
+  border-left: 5px solid var(--red);
+}
+
+.signal-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .section-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -276,8 +331,142 @@ footer {
   font-size: 13px;
 }
 
+body.modal-open {
+  overflow: hidden;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.modal-overlay[hidden] {
+  display: none;
+}
+
+.modal-panel {
+  width: min(980px, 100%);
+  max-height: min(820px, 90vh);
+  overflow: auto;
+  background: var(--panel);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+}
+
+.modal-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 20px 22px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.modal-heading h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.modal-heading p:not(.eyebrow) {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.modal-close {
+  align-self: flex-start;
+  justify-self: end;
+  width: max-content;
+  min-width: 74px;
+  background: #ffffff;
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.alert-list {
+  display: grid;
+  gap: 12px;
+  padding: 16px 22px;
+}
+
+.alert-item {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px 16px;
+  background: #ffffff;
+}
+
+.alert-item.opportunity {
+  border-left: 5px solid var(--green);
+}
+
+.alert-item.risk {
+  border-left: 5px solid var(--red);
+}
+
+.alert-item-head {
+  display: grid;
+  gap: 5px;
+}
+
+.alert-item-head span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alert-item-head strong {
+  font-size: 16px;
+}
+
+.alert-item p,
+.alert-item li {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.alert-item ul {
+  margin: 10px 0;
+  padding-left: 20px;
+}
+
+.alert-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.alert-metrics span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.alert-watch {
+  margin-bottom: 0;
+  color: var(--muted) !important;
+}
+
+.modal-note {
+  margin: 0;
+  padding: 0 22px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 @media (max-width: 960px) {
   .kpis,
+  .signal-actions,
   .section-grid {
     grid-template-columns: 1fr;
   }
@@ -290,5 +479,12 @@ footer {
     display: inline-block;
     margin-top: 16px;
   }
-}
 
+  .modal-overlay {
+    padding: 12px;
+  }
+
+  .modal-heading {
+    display: grid;
+  }
+}

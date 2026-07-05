@@ -10,13 +10,61 @@ const fmtNum = (value, digits = 3) => {
 
 const fmtRet = (value) => fmtPct(value);
 
+let currentDashboard = null;
+
+const escapeHtml = (value) => String(value ?? "")
+  .replaceAll("&", "&amp;")
+  .replaceAll("<", "&lt;")
+  .replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;")
+  .replaceAll("'", "&#039;");
+
+const marketLabel = {
+  US: "美国",
+  CN: "中国",
+};
+
+const sectorLabel = {
+  Internet: "互联网",
+  Semiconductor: "半导体",
+  "New Energy": "新能源",
+  Healthcare: "医药",
+  Financials: "金融",
+  "Real Estate Chain": "地产链",
+  Energy: "能源",
+  Materials: "材料",
+  Industrials: "工业",
+  Utilities: "公用事业",
+};
+
+const regimeLabel = {
+  upper_tail: "上尾强势",
+  lower_tail: "下尾弱势",
+  middle: "中间区间",
+};
+
+const statusLabel = {
+  ok: "正常",
+};
+
+const interpretationLabel = {
+  possible_flow_follow_through: "可能继续扩散",
+  already_confirming_move: "已经开始确认",
+  possible_downside_spillover: "可能下跌传导",
+};
+
 const columnLabel = {
   id: "板块",
   source_id: "来源",
   target_id: "目标",
+  left_id: "中国板块",
+  right_id: "美国板块",
+  left_sector: "行业",
   sector: "行业",
   market: "市场",
   regime: "状态",
+  source_regime: "来源状态",
+  target_regime: "目标状态",
   latest_return: "当日收益",
   standardized_residual: "标准残差",
   empirical_percentile: "分位数",
@@ -37,12 +85,17 @@ const columnLabel = {
 
 function formatCell(key, value) {
   if (key === "regime" || key === "source_regime" || key === "target_regime") {
-    return `<span class="badge ${value}">${value || ""}</span>`;
+    const safeValue = escapeHtml(value || "");
+    return `<span class="badge ${safeValue}">${escapeHtml(regimeLabel[value] || value || "")}</span>`;
   }
+  if (key === "market") return escapeHtml(marketLabel[value] || value || "");
+  if (key === "sector" || key === "left_sector") return escapeHtml(sectorLabel[value] || value || "");
+  if (key === "status") return escapeHtml(statusLabel[value] || value || "");
+  if (key === "interpretation") return escapeHtml(interpretationLabel[value] || value || "");
   if (key.includes("return")) return fmtRet(value);
   if (key.includes("percentile") || key.includes("dependence") || key.includes("pearson") || key.includes("spearman") || key.includes("strength")) return fmtPct(value);
   if (["score", "relation_metric", "standardized_residual", "garch_sigma", "alpha", "beta", "persistence", "omega"].includes(key)) return fmtNum(value);
-  return value ?? "";
+  return escapeHtml(value ?? "");
 }
 
 function renderTable(targetId, rows, columns, limit = 20) {
@@ -95,8 +148,60 @@ function renderHeatmaps(heatmaps) {
   });
 }
 
+function renderAlertCards(alerts) {
+  const opportunity = alerts?.opportunity || { count: 0, items: [] };
+  const risk = alerts?.risk || { count: 0, items: [] };
+  document.getElementById("opportunityCount").textContent = opportunity.count ?? opportunity.items?.length ?? 0;
+  document.getElementById("riskCount").textContent = risk.count ?? risk.items?.length ?? 0;
+  document.getElementById("opportunitySummary").textContent = opportunity.summary || "查看下一步可能承接资金扩散的板块";
+  document.getElementById("riskSummary").textContent = risk.summary || "查看下跌传导和短线过热回调风险";
+  document.getElementById("openOpportunity").disabled = !opportunity.items || opportunity.items.length === 0;
+  document.getElementById("openRisk").disabled = !risk.items || risk.items.length === 0;
+}
+
+function renderAlertItem(item) {
+  const reasons = (item.reasons || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join("");
+  const relation = item.relation_metric === null || item.relation_metric === undefined
+    ? ""
+    : `<span>历史关系 ${fmtPct(item.relation_metric)}</span>`;
+  const score = item.score === null || item.score === undefined
+    ? ""
+    : `<span>信号分数 ${fmtNum(item.score)}</span>`;
+  return `
+    <article class="alert-item ${escapeHtml(item.type || "")}">
+      <div class="alert-item-head">
+        <span>${escapeHtml(item.subtype || "提示")}</span>
+        <strong>${escapeHtml(item.title || "")}</strong>
+      </div>
+      <p>${escapeHtml(item.summary || "")}</p>
+      <div class="alert-metrics">${relation}${score}</div>
+      <ul>${reasons}</ul>
+      <p class="alert-watch">${escapeHtml(item.watch || "")}</p>
+    </article>
+  `;
+}
+
+function openSignalDialog(type) {
+  const group = currentDashboard?.alerts?.[type];
+  if (!group || !group.items || group.items.length === 0) return;
+  const dialog = document.getElementById("signalDialog");
+  document.getElementById("signalDialogEyebrow").textContent = type === "opportunity" ? "资金扩散观察" : "风险与回调观察";
+  document.getElementById("signalDialogTitle").textContent = group.title || "提示";
+  document.getElementById("signalDialogSummary").textContent = group.summary || "";
+  document.getElementById("signalDialogList").innerHTML = group.items.map(renderAlertItem).join("");
+  dialog.hidden = false;
+  document.body.classList.add("modal-open");
+}
+
+function closeSignalDialog() {
+  document.getElementById("signalDialog").hidden = true;
+  document.body.classList.remove("modal-open");
+}
+
 function renderDashboard(data) {
+  currentDashboard = data;
   renderKpis(data.summary);
+  renderAlertCards(data.alerts);
   renderTable("latestTable", data.latestRegime, ["id", "market", "sector", "latest_return", "standardized_residual", "empirical_percentile", "regime", "regime_strength"], 30);
   renderTable("flowTable", data.flowCandidates, ["source_id", "target_id", "source_regime", "target_regime", "relation_metric", "score", "interpretation"], 18);
   renderTable("riskTable", data.riskCandidates, ["source_id", "target_id", "source_regime", "target_regime", "relation_metric", "score", "interpretation"], 18);
@@ -150,6 +255,15 @@ function initDates() {
 document.addEventListener("DOMContentLoaded", () => {
   initDates();
   document.getElementById("refreshBtn").addEventListener("click", refreshAnalysis);
+  document.getElementById("openOpportunity").addEventListener("click", () => openSignalDialog("opportunity"));
+  document.getElementById("openRisk").addEventListener("click", () => openSignalDialog("risk"));
+  document.getElementById("closeSignalDialog").addEventListener("click", closeSignalDialog);
+  document.getElementById("signalDialog").addEventListener("click", (event) => {
+    if (event.target.id === "signalDialog") closeSignalDialog();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSignalDialog();
+  });
   loadDashboard().catch((error) => {
     document.getElementById("statusText").textContent = `读取失败：${error.message}`;
   });

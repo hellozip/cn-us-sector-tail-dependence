@@ -4,16 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>中美板块资金流向雷达</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260705-alerts" />
 </head>
 <body>
   <header class="app-header">
     <div>
-      <p class="eyebrow">GARCH · Copula · Regime Signal</p>
+      <p class="eyebrow">GARCH 波动过滤 · Copula 尾部相关 · 状态信号</p>
       <h1>中美板块资金流向雷达</h1>
-      <p class="subtitle">基于 GARCH 标准化残差，分下尾、上尾和中间区间判断板块联动与潜在扩散方向。</p>
+      <p class="subtitle">基于 GARCH 标准化残差，分下尾、上尾和中间区间判断板块联动、资金扩散方向和过热回调风险。</p>
     </div>
-    <a class="repo-link" href="https://github.com/hellozip/cn-us-sector-tail-dependence" target="_blank" rel="noreferrer">GitHub</a>
+    <a class="repo-link" href="https://github.com/hellozip/cn-us-sector-tail-dependence" target="_blank" rel="noreferrer">项目源码</a>
   </header>
 
   <main>
@@ -27,7 +27,7 @@
         <input id="endDate" type="date" />
       </label>
       <label>
-        Tail alpha
+        尾部阈值
         <input id="alpha" type="number" min="0.01" max="0.20" step="0.01" value="0.05" />
       </label>
       <label class="check-row">
@@ -39,6 +39,19 @@
     </section>
 
     <section class="kpis" id="kpis"></section>
+
+    <section class="signal-actions" aria-label="机会与风险提示">
+      <button id="openOpportunity" class="signal-card opportunity" type="button">
+        <span>机会提示</span>
+        <strong id="opportunityCount">0</strong>
+        <small id="opportunitySummary">查看下一步可能承接资金扩散的板块</small>
+      </button>
+      <button id="openRisk" class="signal-card risk" type="button">
+        <span>风险提示</span>
+        <strong id="riskCount">0</strong>
+        <small id="riskSummary">查看下跌传导和短线过热回调风险</small>
+      </button>
+    </section>
 
     <section class="section-grid">
       <div class="panel wide">
@@ -92,10 +105,24 @@
   </main>
 
   <footer>
-    这是风险与资金扩散研究工具，不是确定性买卖信号。信号来自历史相关结构和最新交易日状态。
+    这是风险与资金扩散研究工具，不是确定性买卖信号。机会提示和风险提示来自历史相关结构、GARCH 标准化残差和最新交易日状态。
   </footer>
 
-  <script src="/static/app.js"></script>
+  <div id="signalDialog" class="modal-overlay" hidden>
+    <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="signalDialogTitle">
+      <div class="modal-heading">
+        <div>
+          <p id="signalDialogEyebrow" class="eyebrow">信号提示</p>
+          <h2 id="signalDialogTitle">提示</h2>
+          <p id="signalDialogSummary"></p>
+        </div>
+        <button id="closeSignalDialog" class="modal-close" type="button" aria-label="关闭弹窗">关闭</button>
+      </div>
+      <div id="signalDialogList" class="alert-list"></div>
+      <p class="modal-note">提示只说明历史结构和当前状态，不构成直接买卖建议。真正下单前仍需要结合估值、基本面、仓位和市场环境。</p>
+    </section>
+  </div>
+
+  <script src="/static/app.js?v=20260705-alerts"></script>
 </body>
 </html>
-
