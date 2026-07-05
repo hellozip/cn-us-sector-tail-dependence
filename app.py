@@ -195,6 +195,67 @@ def _read_fund_flow_sources(path: Path) -> dict[str, dict]:
     return {str(row["id"]): row for row in frame.to_dict(orient="records")}
 
 
+def _latest_us_etf_snapshots(data_dir: Path) -> pd.DataFrame:
+    path = data_dir / "us_etf_snapshots.csv"
+    if not path.exists():
+        return pd.DataFrame()
+    frame = pd.read_csv(path).replace({np.nan: None})
+    required = {"date", "id", "aum"}
+    if not required.issubset(frame.columns):
+        return pd.DataFrame()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["aum"] = pd.to_numeric(frame["aum"], errors="coerce")
+    frame = frame.dropna(subset=["date", "id", "aum"])
+    frame = frame[frame["aum"] > 0].copy()
+    if frame.empty:
+        return pd.DataFrame()
+    frame["id"] = frame["id"].astype(str)
+    return frame.sort_values(["id", "date"]).drop_duplicates(subset=["id"], keep="last")
+
+
+def _augment_pending_us_snapshot_rows(
+    data_dir: Path,
+    fund_flow: pd.DataFrame,
+    total_size: pd.DataFrame,
+    sources: dict[str, dict],
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, dict]]:
+    snapshots = _latest_us_etf_snapshots(data_dir)
+    if snapshots.empty:
+        return fund_flow, total_size, sources
+    fund_flow = fund_flow.copy()
+    total_size = total_size.copy()
+    sources = dict(sources)
+    for row in _records(snapshots):
+        asset_id = str(row.get("id") or "")
+        if not asset_id.startswith("US_"):
+            continue
+        when = pd.Timestamp(row.get("date"))
+        aum = _safe_float(row.get("aum"))
+        if aum is None or aum <= 0:
+            continue
+        if asset_id not in total_size.columns:
+            total_size[asset_id] = np.nan
+        total_size.loc[when, asset_id] = aum
+        if asset_id not in fund_flow.columns or pd.to_numeric(fund_flow[asset_id], errors="coerce").dropna().empty:
+            if asset_id not in fund_flow.columns:
+                fund_flow[asset_id] = np.nan
+            fund_flow.loc[when, asset_id] = 0.0
+            ticker = str(row.get("ticker") or "")
+            sources.setdefault(
+                asset_id,
+                {
+                    "flow_source": "StockAnalysis ETF AUM/份额快照：等待第二个交易日快照后估算 ETF 净申赎",
+                    "total_size_source": "StockAnalysis ETF AUM",
+                    "source_url": str(row.get("source_url") or ""),
+                    "currency": str(row.get("currency") or "USD"),
+                    "board_codes": ticker,
+                    "board_names": str(row.get("name") or ticker),
+                    "notes": "当前只有一张 StockAnalysis ETF AUM/份额快照，资金流金额以 0 占位用于展示板块；抓到第二个不同交易日快照后，会自动改用净申赎估算值。",
+                },
+            )
+    return fund_flow.sort_index(), total_size.sort_index(), sources
+
+
 def _records(frame: pd.DataFrame) -> list[dict]:
     if frame.empty:
         return []
@@ -377,37 +438,41 @@ def _overheat_alerts(latest_regime: pd.DataFrame, limit: int = 5) -> list[dict]:
 
 
 def _volatility_alerts(latest_regime: pd.DataFrame, sigma_history: pd.DataFrame, limit: int = 8) -> list[dict]:
-    if latest_regime.empty or sigma_history.empty:
+    if latest_regime.empty:
         return []
     lookup = _asset_lookup(latest_regime)
     rows: list[dict] = []
     for row in _records(latest_regime):
         asset_id = row.get("id")
-        if not asset_id or asset_id not in sigma_history.columns:
-            continue
-        history = pd.to_numeric(sigma_history[asset_id], errors="coerce").dropna()
-        if history.shape[0] < 250:
+        if not asset_id:
             continue
         latest_sigma = _safe_float(row.get("garch_sigma"))
         if latest_sigma is None:
-            latest_sigma = _safe_float(history.iloc[-1])
-        if latest_sigma is None:
             continue
-        median_sigma = float(history.median())
-        if median_sigma <= 0:
-            continue
-        percentile = float((history <= latest_sigma).mean())
-        ratio = latest_sigma / median_sigma
+        percentile = None
+        ratio = None
+        if not sigma_history.empty and asset_id in sigma_history.columns:
+            history = pd.to_numeric(sigma_history[asset_id], errors="coerce").dropna()
+            if history.shape[0] >= 250:
+                median_sigma = float(history.median())
+                if median_sigma > 0:
+                    percentile = float((history <= latest_sigma).mean())
+                    ratio = latest_sigma / median_sigma
+        if percentile is None:
+            percentile = _safe_float(row.get("empirical_percentile"))
         residual = abs(_safe_float(row.get("standardized_residual")) or 0.0)
         latest_return = abs(_safe_float(row.get("latest_return")) or 0.0)
-        if percentile < 0.85 and ratio < 1.35 and residual < 1.8:
+        if percentile is None:
+            continue
+        ratio_for_filter = ratio if ratio is not None else 1.0
+        if percentile < 0.85 and ratio_for_filter < 1.35 and residual < 1.8:
             continue
         rows.append(
             {
                 **row,
                 "volatility_percentile": percentile,
                 "volatility_ratio": ratio,
-                "volatility_score": percentile + min(ratio / 2.5, 1.2) + min(residual / 3.0, 1.0) + min(latest_return * 8, 0.5),
+                "volatility_score": percentile + min(ratio_for_filter / 2.5, 1.2) + min(residual / 3.0, 1.0) + min(latest_return * 8, 0.5),
             }
         )
 
@@ -421,6 +486,14 @@ def _volatility_alerts(latest_regime: pd.DataFrame, sigma_history: pd.DataFrame,
         residual = _safe_float(row.get("standardized_residual"))
         score = _safe_float(row.get("volatility_score"))
         direction = "上涨冲击" if (_safe_float(row.get("latest_return")) or 0.0) > 0 else "下跌冲击"
+        reasons = [
+            f"最新 GARCH 条件波动率为 {_fmt_pct(sigma)}，处在自身历史约 {_fmt_pct(percentile)} 分位。",
+            f"最新标准残差为 {_fmt_num(residual, 2)}，对应{direction}，需要同时观察方向和波动是否继续扩散。",
+        ]
+        if ratio is not None:
+            reasons.insert(1, f"当前波动率约为历史中位数的 {_fmt_num(ratio, 2)} 倍，说明波动状态已经明显抬升。")
+        else:
+            reasons.insert(1, "当前快照目录缺少完整 sigma 历史时，系统会使用 latest_regime 中已保存的 GARCH 分位和残差作为降级检测依据。")
         alerts.append(
             {
                 "type": "volatility",
@@ -433,11 +506,7 @@ def _volatility_alerts(latest_regime: pd.DataFrame, sigma_history: pd.DataFrame,
                 "score": score,
                 "relation_metric": percentile,
                 "summary": f"{label} 的最新 GARCH 条件波动率处在自身历史高位，当前价格变化更像是异常波动，而不是普通日内噪声。",
-                "reasons": [
-                    f"最新 GARCH 条件波动率为 {_fmt_pct(sigma)}，处在自身历史约 {_fmt_pct(percentile)} 分位。",
-                    f"当前波动率约为历史中位数的 {_fmt_num(ratio, 2)} 倍，说明波动状态已经明显抬升。",
-                    f"最新标准残差为 {_fmt_num(residual, 2)}，对应{direction}，需要同时观察方向和波动是否继续扩散。",
-                ],
+                "reasons": reasons,
                 "watch": "适合检查仓位杠杆、止损距离和同类板块暴露；波动率异常本身不等于一定上涨或下跌，但会放大后续价格路径的不确定性。",
             }
         )
@@ -607,6 +676,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     total_size = _read_metric_timeseries(data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
     turnover = _read_timeseries(data_dir / "turnover_amount.csv")
     sources = _read_fund_flow_sources(data_dir / "fund_flow_sources.csv")
+    fund_flow, total_size, sources = _augment_pending_us_snapshot_rows(data_dir, fund_flow, total_size, sources)
 
     if fund_flow.empty or total_size.empty:
         return {

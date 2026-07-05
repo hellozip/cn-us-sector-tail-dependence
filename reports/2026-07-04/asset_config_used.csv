@@ -1,0 +1,21 @@
+﻿id,market,sector,ticker,name,currency,proxy_note
+US_INTERNET,US,Internet,FDN,First Trust Dow Jones Internet Index Fund,USD,US internet equity ETF proxy
+US_SEMICONDUCTOR,US,Semiconductor,SMH,VanEck Semiconductor ETF,USD,US listed semiconductor ETF proxy
+US_NEW_ENERGY,US,New Energy,QCLN,First Trust Nasdaq Clean Edge Green Energy Index Fund,USD,US clean energy ETF proxy
+US_HEALTHCARE,US,Healthcare,XLV,Health Care Select Sector SPDR Fund,USD,US healthcare sector ETF proxy
+US_FINANCIALS,US,Financials,XLF,Financial Select Sector SPDR Fund,USD,US financials sector ETF proxy
+US_REAL_ESTATE_CHAIN,US,Real Estate Chain,XHB,SPDR S&P Homebuilders ETF,USD,US housing and real-estate-chain ETF proxy
+US_ENERGY,US,Energy,XLE,Energy Select Sector SPDR Fund,USD,US energy sector ETF proxy
+US_MATERIALS,US,Materials,XLB,Materials Select Sector SPDR Fund,USD,US materials sector ETF proxy
+US_INDUSTRIALS,US,Industrials,XLI,Industrial Select Sector SPDR Fund,USD,US industrials sector ETF proxy
+US_UTILITIES,US,Utilities,XLU,Utilities Select Sector SPDR Fund,USD,US utilities sector ETF proxy
+CN_INTERNET,CN,Internet,513050.SS,E Fund CSI Overseas China Internet 50 ETF Index Fund,CNY,China internet ETF proxy; China-linked internet exposure
+CN_SEMICONDUCTOR,CN,Semiconductor,512760.SS,Guotai CES Semiconductor Industry ETF,CNY,China semiconductor industry ETF proxy
+CN_NEW_ENERGY,CN,New Energy,515030.SS,ChinaAMC CSI New Energy Automobile ETF,CNY,China new-energy vehicle ETF proxy; history starts in 2020
+CN_HEALTHCARE,CN,Healthcare,512010.SS,E Fund CSI 300 Health Care Index Fund,CNY,China healthcare ETF proxy
+CN_FINANCIALS,CN,Financials,510230.SS,Guotai SSE 180 Financial Index ETF,CNY,China broad financials ETF proxy
+CN_REAL_ESTATE_CHAIN,CN,Real Estate Chain,512200.SS,China Southern CSI All Share Real Estate ETF,CNY,China real estate ETF proxy; chain exposure can be expanded with building-material ETFs
+CN_ENERGY,CN,Energy,159945.SZ,GF CSI All Share Energy Index ETF,CNY,China all-share energy ETF proxy
+CN_MATERIALS,CN,Materials,512400.SS,China Southern CSI SWS Nonferrous ETF,CNY,China materials proxy focused on nonferrous metals
+CN_INDUSTRIALS,CN,Industrials,512660.SS,Guotai CSI National Defense ETF,CNY,China industrials proxy tilted toward defense and advanced manufacturing
+CN_UTILITIES,CN,Utilities,159611.SZ,CSI All Share Power and Power Grid ETF,CNY,China utilities proxy focused on power and grid; shorter history
