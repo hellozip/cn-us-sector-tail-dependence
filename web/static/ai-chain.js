@@ -1,4 +1,4 @@
-const FUNDAMENTAL_PAGE_URL = "https://us-stock-fundamental-dashboard.onrender.com/";
+const FUNDAMENTAL_PAGE_URL = "https://hellozip.github.io/us-stock-fundamental-dashboard/static/index.html";
 
 const qqqSourceNote =
   "股票筛选口径：Nasdaq-100/QQQ 口径下，且你的基本面研究驾驶舱已有资料的股票。Nasdaq 成分数据日期为 2026-07-02；QQQ 跟踪 Nasdaq-100，实际持仓会随基金披露变化。";
