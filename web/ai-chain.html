@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI产业链图谱</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20260706-ai-chain" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">AI 产业链 · 上游基础层 · 中游平台层 · 下游应用层</p>
+      <h1>AI产业链图谱</h1>
+      <p class="subtitle">用可点击的图像节点查看 AI 产业链各环节，并把技术环节映射到后续可跟踪的板块、资金流和风险观察点。</p>
+    </div>
+    <nav class="header-actions" aria-label="页面导航">
+      <a class="header-link secondary" href="/">资金流向雷达</a>
+    </nav>
+  </header>
+
+  <main class="ai-chain-main">
+    <section class="chain-overview" aria-label="AI产业链总览">
+      <div>
+        <p class="eyebrow">产业链视图</p>
+        <h2>从算力基础设施，到模型平台，再到应用落地</h2>
+      </div>
+      <div class="chain-legend" aria-label="层级说明">
+        <span><i class="legend-upstream"></i>上游基础层</span>
+        <span><i class="legend-midstream"></i>中游技术/平台层</span>
+        <span><i class="legend-downstream"></i>下游应用层</span>
+      </div>
+    </section>
+
+    <section id="aiChainBoard" class="ai-chain-board" aria-label="可点击AI产业链节点"></section>
+  </main>
+
+  <div id="chainDialog" class="modal-overlay" hidden>
+    <section class="modal-panel chain-modal-panel" role="dialog" aria-modal="true" aria-labelledby="chainDialogTitle">
+      <div class="modal-heading">
+        <div>
+          <p id="chainDialogEyebrow" class="eyebrow">产业链节点</p>
+          <h2 id="chainDialogTitle">节点</h2>
+          <p id="chainDialogSummary"></p>
+        </div>
+        <button id="closeChainDialog" class="modal-close" type="button" aria-label="关闭弹窗">关闭</button>
+      </div>
+      <div id="chainDialogBody" class="chain-dialog-body"></div>
+      <p class="modal-note">该页面用于产业链结构观察，不构成具体买卖建议。后续可把节点继续映射到中美板块、ETF、个股和资金流指标。</p>
+    </section>
+  </div>
+
+  <script src="/static/ai-chain.js?v=20260706-ai-chain"></script>
+</body>
+</html>

@@ -54,6 +54,34 @@ h1 {
   font-size: 15px;
 }
 
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.header-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  padding: 9px 13px;
+  background: var(--blue);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.header-link.secondary {
+  background: #ffffff;
+  color: var(--blue);
+}
+
 button {
   border: 1px solid var(--blue);
   background: var(--blue);
@@ -619,6 +647,334 @@ body.modal-open {
   line-height: 1.55;
 }
 
+.ai-chain-main {
+  display: grid;
+  gap: 18px;
+}
+
+.chain-overview {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-end;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.chain-overview h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.chain-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  justify-content: flex-end;
+}
+
+.chain-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 10px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chain-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.legend-upstream {
+  background: #0f766e;
+}
+
+.legend-midstream {
+  background: #1d4ed8;
+}
+
+.legend-downstream {
+  background: #b45309;
+}
+
+.ai-chain-board {
+  display: grid;
+  gap: 18px;
+}
+
+.chain-layer {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.chain-layer.upstream {
+  border-top: 5px solid #0f766e;
+}
+
+.chain-layer.midstream {
+  border-top: 5px solid #1d4ed8;
+}
+
+.chain-layer.downstream {
+  border-top: 5px solid #b45309;
+}
+
+.chain-layer-heading {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.chain-layer-heading h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+.ai-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+  padding: 14px;
+}
+
+.ai-node {
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  min-height: 116px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+  color: var(--text);
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.ai-node:hover {
+  border-color: var(--blue);
+  transform: translateY(-1px);
+}
+
+.ai-node:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.22);
+  outline-offset: 2px;
+}
+
+.ai-node-image {
+  position: relative;
+  display: block;
+  width: 78px;
+  height: 78px;
+  border-radius: 8px;
+  overflow: hidden;
+  background-color: #0f172a;
+}
+
+.ai-node-image::before,
+.ai-node-image::after,
+.ai-node-image span::before,
+.ai-node-image span::after {
+  content: "";
+  position: absolute;
+  display: block;
+}
+
+.ai-node-image::before {
+  inset: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  border-radius: 7px;
+}
+
+.ai-node-image::after {
+  right: 10px;
+  bottom: 10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.ai-node-image span::before {
+  left: 14px;
+  top: 15px;
+  width: 34px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.ai-node-image span::after {
+  left: 14px;
+  top: 31px;
+  width: 44px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.ai-node-image.chip {
+  background: linear-gradient(135deg, #0f766e, #134e4a);
+}
+
+.ai-node-image.server {
+  background: linear-gradient(135deg, #334155, #0f172a);
+}
+
+.ai-node-image.cloud {
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+}
+
+.ai-node-image.datacenter {
+  background: linear-gradient(135deg, #475569, #b45309);
+}
+
+.ai-node-image.compute {
+  background: linear-gradient(135deg, #1d4ed8, #7c2d12);
+}
+
+.ai-node-image.data {
+  background: linear-gradient(135deg, #0f766e, #365314);
+}
+
+.ai-node-image.model {
+  background: linear-gradient(135deg, #1d4ed8, #4338ca);
+}
+
+.ai-node-image.framework {
+  background: linear-gradient(135deg, #0f172a, #1d4ed8);
+}
+
+.ai-node-image.platform {
+  background: linear-gradient(135deg, #0f766e, #1d4ed8);
+}
+
+.ai-node-image.mlops {
+  background: linear-gradient(135deg, #64748b, #0f766e);
+}
+
+.ai-node-image.vector {
+  background: linear-gradient(135deg, #4338ca, #0f766e);
+}
+
+.ai-node-image.inference {
+  background: linear-gradient(135deg, #1d4ed8, #b45309);
+}
+
+.ai-node-image.office {
+  background: linear-gradient(135deg, #0369a1, #0f766e);
+}
+
+.ai-node-image.search {
+  background: linear-gradient(135deg, #1d4ed8, #0f172a);
+}
+
+.ai-node-image.education {
+  background: linear-gradient(135deg, #0f766e, #15803d);
+}
+
+.ai-node-image.medical {
+  background: linear-gradient(135deg, #0f766e, #be123c);
+}
+
+.ai-node-image.service {
+  background: linear-gradient(135deg, #1d4ed8, #64748b);
+}
+
+.ai-node-image.auto {
+  background: linear-gradient(135deg, #0f172a, #b45309);
+}
+
+.ai-node-image.inspection {
+  background: linear-gradient(135deg, #475569, #0f766e);
+}
+
+.ai-node-image.risk {
+  background: linear-gradient(135deg, #b42318, #1d4ed8);
+}
+
+.ai-node-image.robot {
+  background: linear-gradient(135deg, #334155, #0f766e);
+}
+
+.ai-node-text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ai-node-text strong {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.ai-node-text small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chain-modal-panel {
+  width: min(760px, 100%);
+}
+
+.chain-dialog-body {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 14px;
+  padding: 16px 22px;
+}
+
+.chain-dialog-visual {
+  grid-row: 1 / span 3;
+  width: 112px;
+  height: 112px;
+}
+
+.chain-dialog-section {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #ffffff;
+}
+
+.chain-dialog-section + .chain-dialog-section {
+  margin-top: 10px;
+}
+
+.chain-dialog-section h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+}
+
+.chain-dialog-section p {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 @media (max-width: 960px) {
   .kpis,
   .fund-flow-stats,
@@ -638,6 +994,31 @@ body.modal-open {
 
   .app-header {
     display: block;
+  }
+
+  .header-actions {
+    justify-content: flex-start;
+    margin-top: 14px;
+  }
+
+  .chain-overview {
+    display: grid;
+  }
+
+  .chain-legend {
+    justify-content: flex-start;
+  }
+
+  .ai-node-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chain-dialog-body {
+    grid-template-columns: 1fr;
+  }
+
+  .chain-dialog-visual {
+    grid-row: auto;
   }
 
   .modal-overlay {

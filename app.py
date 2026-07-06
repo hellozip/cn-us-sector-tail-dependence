@@ -905,6 +905,8 @@ def app(environ, start_response):
 
     if method == "GET" and path == "/":
         return _file_response(start_response, WEB_DIR / "index.html")
+    if method == "GET" and path in {"/ai-chain", "/ai-chain.html"}:
+        return _file_response(start_response, WEB_DIR / "ai-chain.html")
     if method == "GET" and path == "/healthz":
         return _json_response(start_response, {"ok": True})
     if method == "GET" and path == "/api/dashboard":
