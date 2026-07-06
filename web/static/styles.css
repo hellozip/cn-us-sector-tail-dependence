@@ -920,6 +920,10 @@ body.modal-open {
   background: linear-gradient(135deg, #b42318, #1d4ed8);
 }
 
+.ai-node-image.security {
+  background: linear-gradient(135deg, #0f172a, #b91c1c);
+}
+
 .ai-node-image.robot {
   background: linear-gradient(135deg, #334155, #0f766e);
 }
@@ -1009,8 +1013,101 @@ body.modal-open {
 
 .stock-chip-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(245px, 1fr));
   gap: 8px;
+}
+
+.chain-stock-card {
+  display: grid;
+  gap: 10px;
+  min-height: 122px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8fafc;
+}
+
+.chain-stock-main {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.chain-stock-main strong {
+  color: #b91c1c;
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.chain-stock-main span {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.chain-stock-main small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.stock-source-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.stock-source-badges em {
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.stock-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stock-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 8px;
+  padding: 7px 9px;
+  text-align: center;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+}
+
+.stock-action.primary {
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+  background: #fff1f2;
+}
+
+.stock-action.secondary {
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.stock-action.disabled {
+  border: 1px solid #e2e8f0;
+  color: #94a3b8;
+  background: #f1f5f9;
+  cursor: not-allowed;
+  user-select: none;
 }
 
 .chain-stock-chip {
