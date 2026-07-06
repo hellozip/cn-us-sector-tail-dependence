@@ -669,6 +669,13 @@ body.modal-open {
   font-size: 20px;
 }
 
+.chain-scope-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .chain-legend {
   display: flex;
   flex-wrap: wrap;
@@ -934,8 +941,24 @@ body.modal-open {
   line-height: 1.45;
 }
 
+.ai-node-stockline {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  white-space: normal;
+}
+
 .chain-modal-panel {
-  width: min(760px, 100%);
+  width: min(860px, 100%);
 }
 
 .chain-dialog-body {
@@ -973,6 +996,78 @@ body.modal-open {
   color: var(--text);
   font-size: 13px;
   line-height: 1.55;
+}
+
+.chain-stock-section {
+  display: grid;
+  gap: 10px;
+}
+
+.chain-dialog-wide {
+  grid-column: 1 / -1;
+}
+
+.stock-chip-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(205px, 1fr));
+  gap: 8px;
+}
+
+.chain-stock-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  color: var(--text);
+  background: #f8fafc;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+
+.chain-stock-chip:hover {
+  border-color: var(--blue);
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+
+.chain-stock-chip span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chain-stock-chip strong {
+  color: #b91c1c;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+.chain-stock-chip small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.chain-stock-chip em {
+  flex: 0 0 auto;
+  border: 1px solid #fecaca;
+  border-radius: 999px;
+  padding: 4px 8px;
+  color: #b91c1c;
+  background: #fff1f2;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.stock-source-note {
+  margin: 0;
+  color: var(--muted) !important;
+  font-size: 12px !important;
 }
 
 @media (max-width: 960px) {
@@ -1019,6 +1114,14 @@ body.modal-open {
 
   .chain-dialog-visual {
     grid-row: auto;
+  }
+
+  .chain-dialog-wide {
+    grid-column: auto;
+  }
+
+  .stock-chip-list {
+    grid-template-columns: 1fr;
   }
 
   .modal-overlay {
