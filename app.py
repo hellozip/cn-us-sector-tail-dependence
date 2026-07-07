@@ -5,9 +5,12 @@ import mimetypes
 import os
 import subprocess
 import sys
+import time
 from datetime import date, timedelta
 from pathlib import Path
-from urllib.parse import parse_qs, unquote
+from urllib.error import HTTPError, URLError
+from urllib.parse import parse_qs, unquote, urlencode
+from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
@@ -18,6 +21,29 @@ OUTPUT_DIR = ROOT / "outputs" / "latest"
 REPORTS_DIR = ROOT / "reports"
 WEB_DIR = ROOT / "web"
 STATIC_DIR = WEB_DIR / "static"
+US_RANKING_BASE_URL = os.environ.get("US_RANKING_BASE_URL", "http://120.26.169.129:8081").rstrip("/")
+US_RANKING_WINDOW = os.environ.get("US_RANKING_WINDOW", "10")
+US_RANKING_TIMEOUT = float(os.environ.get("US_RANKING_TIMEOUT", "8"))
+US_RANKING_CACHE_SECONDS = int(os.environ.get("US_RANKING_CACHE_SECONDS", "300"))
+US_RANKING_MARKET = os.environ.get("US_RANKING_MARKET", "us")
+US_RANKING_BENCHMARK = os.environ.get("US_RANKING_BENCHMARK", "QQQ")
+
+_RANK_HEAT_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+
+US_RANK_SECTOR_LABELS = {
+    "Information Technology": "科技",
+    "Communication Services": "通信传媒",
+    "Consumer Discretionary": "可选消费",
+    "Consumer Staples": "必选消费",
+    "Health Care": "医疗健康",
+    "Industrials": "工业",
+    "Financials": "金融",
+    "Utilities": "公用事业",
+    "Energy": "能源",
+    "Materials": "材料",
+    "Real Estate": "房地产",
+    "ETF": "ETF",
+}
 
 MARKET_LABELS = {
     "US": "美国",
@@ -762,6 +788,163 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     }
 
 
+def _us_ranking_url() -> str:
+    params = {
+        "window": str(US_RANKING_WINDOW),
+        "benchmark": US_RANKING_BENCHMARK,
+        "market": US_RANKING_MARKET,
+        "apply_announced_rebalance": "true",
+    }
+    return f"{US_RANKING_BASE_URL}/api/rankings/latest?{urlencode(params)}"
+
+
+def _rank_heat_unavailable(message: str, source_url: str | None = None) -> dict:
+    return {
+        "available": False,
+        "method": "热度 = 个股排名之和 / 个股数量；数值越低代表该组股票在美股排名里越靠前、热度越高。",
+        "error": message,
+        "source_url": source_url or _us_ranking_url(),
+        "bigSectors": [],
+        "smallSectors": [],
+    }
+
+
+def _fetch_us_ranking_payload() -> tuple[dict, str]:
+    source_url = _us_ranking_url()
+    request = Request(
+        source_url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "cn-us-sector-tail-dependence/1.0",
+        },
+    )
+    with urlopen(request, timeout=US_RANKING_TIMEOUT) as response:
+        body = response.read().decode("utf-8-sig")
+    return json.loads(body), source_url
+
+
+def _rank_group_label(value, label_map: dict[str, str] | None = None) -> str:
+    label = str(value or "").strip()
+    if not label or label.lower() in {"nan", "none", "unknown", "null"}:
+        return "未分类"
+    return (label_map or {}).get(label, label)
+
+
+def _aggregate_rank_heat(rows: list[dict], group_key: str, label_map: dict[str, str] | None = None) -> list[dict]:
+    groups: dict[str, dict] = {}
+    for row in rows:
+        rank = _safe_float(row.get("rank"))
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if rank is None or rank <= 0 or not ticker:
+            continue
+        label = _rank_group_label(row.get(group_key), label_map)
+        group = groups.setdefault(
+            label,
+            {
+                "label": label,
+                "rank_sum": 0.0,
+                "stock_count": 0,
+                "members": [],
+            },
+        )
+        group["rank_sum"] += float(rank)
+        group["stock_count"] += 1
+        group["members"].append(
+            {
+                "ticker": ticker,
+                "name": str(row.get("name") or "").strip(),
+                "rank": int(rank) if float(rank).is_integer() else float(rank),
+            }
+        )
+
+    result: list[dict] = []
+    for group in groups.values():
+        count = int(group["stock_count"])
+        if count <= 0:
+            continue
+        leaders = sorted(group["members"], key=lambda item: item["rank"])[:5]
+        result.append(
+            {
+                "label": group["label"],
+                "rank_sum": group["rank_sum"],
+                "stock_count": count,
+                "heat_score": group["rank_sum"] / count,
+                "leaders": leaders,
+            }
+        )
+
+    result.sort(key=lambda item: (item["heat_score"], -item["stock_count"], item["label"]))
+    for index, item in enumerate(result, start=1):
+        item["heat_rank"] = index
+    return result
+
+
+def _ranking_stocks(rows: list[dict]) -> list[dict]:
+    stocks: list[dict] = []
+    for row in rows:
+        rank = _safe_float(row.get("rank"))
+        ticker = str(row.get("ticker") or "").strip().upper()
+        if rank is None or rank <= 0 or not ticker:
+            continue
+        sector = _rank_group_label(row.get("sector"), US_RANK_SECTOR_LABELS)
+        stock_type = _rank_group_label(row.get("stock_type"))
+        stocks.append(
+            {
+                "ticker": ticker,
+                "name": str(row.get("name") or "").strip(),
+                "rank": int(rank) if float(rank).is_integer() else float(rank),
+                "sector": sector,
+                "stock_type": stock_type,
+                "rank_change": row.get("rank_change"),
+                "previous_rank_1": row.get("previous_rank_1"),
+            }
+        )
+    return sorted(stocks, key=lambda item: item["rank"])
+
+
+def _build_rank_heat_summary() -> dict:
+    now = time.time()
+    cached = _RANK_HEAT_CACHE.get("payload")
+    fetched_at = float(_RANK_HEAT_CACHE.get("fetched_at") or 0)
+    if isinstance(cached, dict) and now - fetched_at < US_RANKING_CACHE_SECONDS:
+        return cached
+
+    source_url = _us_ranking_url()
+    try:
+        payload, source_url = _fetch_us_ranking_payload()
+        rows = payload.get("data") or []
+        if not isinstance(rows, list) or not rows:
+            result = _rank_heat_unavailable("外部排名接口暂未返回有效个股列表。", source_url)
+        else:
+            stocks = _ranking_stocks(rows)
+            result = {
+                "available": True,
+                "as_of_date": payload.get("as_of_date"),
+                "window": payload.get("window") or US_RANKING_WINDOW,
+                "market": payload.get("market") or US_RANKING_MARKET,
+                "benchmark": payload.get("benchmark") or US_RANKING_BENCHMARK,
+                "stock_count": len(rows),
+                "benchmark_rank": payload.get("benchmark_rank"),
+                "source_url": source_url,
+                "method": "读取美股排名接口后，按板块内个股 rank 求和再除以个股数量；平均排名越低，说明该大板块/小板块整体越靠前，热度越高。",
+                "bigSectors": _aggregate_rank_heat(rows, "sector", US_RANK_SECTOR_LABELS),
+                "smallSectors": _aggregate_rank_heat(rows, "stock_type"),
+                "stocks": stocks,
+                "rankByTicker": {stock["ticker"]: stock for stock in stocks},
+            }
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError) as exc:
+        if isinstance(cached, dict) and cached.get("available"):
+            result = dict(cached)
+            result["stale"] = True
+            result["warning"] = f"外部排名接口本次刷新失败，暂时沿用上一份缓存：{exc}"
+        else:
+            result = _rank_heat_unavailable(f"外部排名接口暂时无法访问：{exc}", source_url)
+
+    _RANK_HEAT_CACHE["payload"] = result
+    _RANK_HEAT_CACHE["fetched_at"] = now
+    return result
+
+
 def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
     for name in names:
         path = data_dir / name
@@ -915,6 +1098,8 @@ def app(environ, start_response):
             return _json_response(start_response, _dashboard_payload(alpha=(query.get("alpha") or [None])[0]))
         except Exception as exc:  # pragma: no cover - defensive web boundary.
             return _json_response(start_response, {"error": str(exc)}, "500 Internal Server Error")
+    if method == "GET" and path == "/api/us-rank-heat":
+        return _json_response(start_response, _build_rank_heat_summary())
     if method == "POST" and path == "/api/refresh":
         try:
             payload = _refresh_from_body(environ)

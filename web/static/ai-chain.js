@@ -620,6 +620,10 @@ const escapeHtml = (value) => String(value ?? "")
   .replaceAll("'", "&#039;");
 
 const nodeMap = new Map();
+const chainHeatByKey = new Map();
+let chainRankHeat = null;
+let chainRankLoading = true;
+let chainHeatList = [];
 
 function fundamentalUrl(ticker) {
   const params = new URLSearchParams({
@@ -635,6 +639,175 @@ function resolveStocks(tickers) {
   return tickers
     .filter((ticker) => stockCatalog[ticker] && !seen.has(ticker) && seen.add(ticker))
     .map((ticker) => ({ ticker, ...stockCatalog[ticker], url: fundamentalUrl(ticker) }));
+}
+
+function chainNodeKey(layerId, name) {
+  return `${layerId}:${name}`;
+}
+
+function fmtChainHeat(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "暂无";
+  return Number(value).toFixed(1);
+}
+
+function rankInfoForTicker(ticker) {
+  if (!chainRankHeat?.rankByTicker) return null;
+  return chainRankHeat.rankByTicker[String(ticker || "").trim().toUpperCase()] || null;
+}
+
+function computeNodeHeat(layer, item, originalIndex) {
+  const [name, , , , , tickers = []] = item;
+  const stocks = resolveStocks(tickers);
+  const rankedStocks = stocks
+    .map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }))
+    .filter((stock) => stock.rankInfo && Number.isFinite(Number(stock.rankInfo.rank)))
+    .sort((left, right) => Number(left.rankInfo.rank) - Number(right.rankInfo.rank));
+  if (!rankedStocks.length) {
+    return {
+      key: chainNodeKey(layer.id, name),
+      layerId: layer.id,
+      layerTitle: layer.title,
+      name,
+      available: false,
+      heatScore: null,
+      rankedCount: 0,
+      totalCount: stocks.length,
+      rankedStocks: [],
+      originalIndex,
+    };
+  }
+  const rankSum = rankedStocks.reduce((sum, stock) => sum + Number(stock.rankInfo.rank), 0);
+  return {
+    key: chainNodeKey(layer.id, name),
+    layerId: layer.id,
+    layerTitle: layer.title,
+    name,
+    available: true,
+    heatScore: rankSum / rankedStocks.length,
+    rankSum,
+    rankedCount: rankedStocks.length,
+    totalCount: stocks.length,
+    rankedStocks,
+    leaders: rankedStocks.slice(0, 4),
+    originalIndex,
+  };
+}
+
+function buildChainHeat() {
+  chainHeatByKey.clear();
+  chainHeatList = [];
+  if (!chainRankHeat?.available) return;
+  chainLayers.forEach((layer) => {
+    layer.items.forEach((item, originalIndex) => {
+      const heat = computeNodeHeat(layer, item, originalIndex);
+      chainHeatByKey.set(heat.key, heat);
+      if (heat.available) chainHeatList.push(heat);
+    });
+  });
+  chainHeatList.sort((left, right) => (
+    left.heatScore - right.heatScore
+    || right.rankedCount - left.rankedCount
+    || left.name.localeCompare(right.name, "zh-CN")
+  ));
+  chainHeatList.forEach((heat, index) => {
+    heat.heatRank = index + 1;
+    const cached = chainHeatByKey.get(heat.key);
+    if (cached) cached.heatRank = index + 1;
+  });
+}
+
+function orderedLayerItems(layer) {
+  return layer.items
+    .map((item, originalIndex) => {
+      const [name] = item;
+      return {
+        item,
+        originalIndex,
+        heat: chainHeatByKey.get(chainNodeKey(layer.id, name)),
+      };
+    })
+    .sort((left, right) => {
+      const leftHot = left.heat?.available;
+      const rightHot = right.heat?.available;
+      if (leftHot && rightHot) {
+        return left.heat.heatScore - right.heat.heatScore || left.originalIndex - right.originalIndex;
+      }
+      if (leftHot) return -1;
+      if (rightHot) return 1;
+      return left.originalIndex - right.originalIndex;
+    })
+    .map((entry) => entry.item);
+}
+
+function renderNodeHeatLine(key) {
+  if (chainRankLoading) {
+    return `<span class="ai-node-heatline">排名热度：读取中</span>`;
+  }
+  if (!chainRankHeat?.available) {
+    return `<span class="ai-node-heatline muted">排名热度：暂无外部数据</span>`;
+  }
+  const heat = chainHeatByKey.get(key);
+  if (!heat?.available) {
+    return `<span class="ai-node-heatline muted">排名源覆盖：0/${escapeHtml(heat?.totalCount ?? 0)}</span>`;
+  }
+  const leaderText = heat.leaders
+    .map((stock) => `${stock.ticker} #${stock.rankInfo.rank}`)
+    .join(" / ");
+  return `
+    <span class="ai-node-heatline ${heat.heatRank <= 5 ? "hot" : ""}">热度 #${heat.heatRank} · 平均排名 ${fmtChainHeat(heat.heatScore)} · 覆盖 ${heat.rankedCount}/${heat.totalCount}</span>
+    <span class="ai-node-rankline">${escapeHtml(leaderText)}</span>
+  `;
+}
+
+function renderChainRankSummary() {
+  const target = document.getElementById("chainRankSummary");
+  const method = document.getElementById("chainRankMethod");
+  const source = document.getElementById("chainRankSource");
+  if (!target || !method || !source) return;
+  if (chainRankLoading) {
+    method.textContent = "正在读取美股排名源。热度 = 节点内已匹配股票 rank 之和 / 已匹配股票数量，数值越低代表热度越高。";
+    source.hidden = true;
+    target.innerHTML = '<div class="empty">正在生成产业链节点热度排序...</div>';
+    return;
+  }
+  if (!chainRankHeat?.available) {
+    method.textContent = chainRankHeat?.error || "外部美股排名源暂时不可用，产业链节点保持原始顺序。";
+    source.hidden = true;
+    target.innerHTML = '<div class="empty">暂无可用排名热度，已保留原产业链结构。</div>';
+    return;
+  }
+  method.textContent = `数据日：${chainRankHeat.as_of_date || "暂无"}；基准：${chainRankHeat.benchmark || "QQQ"}；排名样本：${chainRankHeat.stock_count || 0} 只。节点热度按已匹配股票平均 rank 升序排列，未被排名源覆盖的股票不纳入分母。`;
+  source.href = chainRankHeat.source_url || "#";
+  source.hidden = !chainRankHeat.source_url;
+  const hotNodes = chainHeatList.slice(0, 10);
+  target.innerHTML = hotNodes.length
+    ? hotNodes.map((heat) => `
+      <button class="chain-rank-chip" type="button" data-node="${escapeHtml(heat.key)}">
+        <span>#${heat.heatRank}</span>
+        <strong>${escapeHtml(heat.name)}</strong>
+        <small>${escapeHtml(heat.layerTitle)} · 平均排名 ${fmtChainHeat(heat.heatScore)} · 覆盖 ${heat.rankedCount}/${heat.totalCount}</small>
+      </button>
+    `).join("")
+    : '<div class="empty">排名源暂未覆盖产业链节点中的股票。</div>';
+}
+
+async function loadChainRankHeat() {
+  try {
+    const response = await fetch("/api/us-rank-heat");
+    if (!response.ok) throw new Error(`rank heat ${response.status}`);
+    chainRankHeat = await response.json();
+  } catch (error) {
+    chainRankHeat = {
+      available: false,
+      error: `外部美股排名源读取失败：${error.message}`,
+    };
+  } finally {
+    chainRankLoading = false;
+    buildChainHeat();
+    indexNodes();
+    renderChain();
+    renderChainRankSummary();
+  }
 }
 
 function stockHint(tickers) {
@@ -654,16 +827,18 @@ function stockBadges(stock) {
 function renderChain() {
   const board = document.getElementById("aiChainBoard");
   const html = chainLayers.map((layer) => {
-    const items = layer.items.map(([name, visual, summary, , , tickers = []]) => {
-      const key = `${layer.id}:${name}`;
+    const items = orderedLayerItems(layer).map(([name, visual, summary, , , tickers = []]) => {
+      const key = chainNodeKey(layer.id, name);
       const stocks = resolveStocks(tickers);
+      const heat = chainHeatByKey.get(key);
       return `
-        <button class="ai-node ${layer.id}" type="button" data-node="${escapeHtml(key)}" aria-label="查看${escapeHtml(name)}">
+        <button class="ai-node ${layer.id} ${heat?.available && heat.heatRank <= 5 ? "hot-node" : ""}" type="button" data-node="${escapeHtml(key)}" aria-label="查看${escapeHtml(name)}">
           <span class="ai-node-image ${escapeHtml(visual)}" aria-hidden="true"><span></span></span>
           <span class="ai-node-text">
             <strong>${escapeHtml(name)}</strong>
             <small>${escapeHtml(summary)}</small>
             <span class="ai-node-stockline">并集股票：${escapeHtml(stockHint(stocks.map((stock) => stock.ticker)))}</span>
+            ${renderNodeHeatLine(key)}
           </span>
         </button>
       `;
@@ -682,9 +857,11 @@ function renderChain() {
 }
 
 function indexNodes() {
+  nodeMap.clear();
   chainLayers.forEach((layer) => {
     layer.items.forEach(([name, visual, summary, watch, related, tickers = []]) => {
-      nodeMap.set(`${layer.id}:${name}`, {
+      const key = chainNodeKey(layer.id, name);
+      nodeMap.set(key, {
         layer,
         name,
         visual,
@@ -692,6 +869,7 @@ function indexNodes() {
         watch,
         related,
         stocks: resolveStocks(tickers),
+        heat: chainHeatByKey.get(key) || null,
       });
     });
   });
@@ -701,9 +879,16 @@ function renderStockLinks(stocks) {
   if (!stocks.length) {
     return `<p class="stock-source-note">暂无符合并集口径的产业链股票。</p>`;
   }
+  const rankedStocks = stocks
+    .map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }))
+    .sort((left, right) => {
+      const leftRank = Number(left.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
+      const rightRank = Number(right.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
+      return leftRank - rightRank || left.ticker.localeCompare(right.ticker);
+    });
   return `
     <div class="stock-chip-list">
-      ${stocks.map((stock) => `
+      ${rankedStocks.map((stock) => `
         <article class="chain-stock-card">
           <div class="chain-stock-main">
             <strong>${escapeHtml(stock.ticker)}</strong>
@@ -711,6 +896,11 @@ function renderStockLinks(stocks) {
             <small>${escapeHtml(stock.role)}</small>
             <div class="stock-source-badges">
               ${stockBadges(stock).map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}
+              ${
+                stock.rankInfo
+                  ? `<em class="rank-source-badge">排名 #${escapeHtml(stock.rankInfo.rank)} · ${escapeHtml(stock.rankInfo.stock_type || stock.rankInfo.sector || "")}</em>`
+                  : `<em class="rank-source-badge muted">排名源未覆盖</em>`
+              }
             </div>
           </div>
           <div class="stock-action-row">
@@ -725,6 +915,45 @@ function renderStockLinks(stocks) {
       `).join("")}
     </div>
     <p class="stock-source-note">${escapeHtml(qqqSourceNote)}</p>
+  `;
+}
+
+function renderNodeHeatDetails(node) {
+  if (chainRankLoading) {
+    return `
+      <div class="chain-dialog-section">
+        <h3>排名热度</h3>
+        <p>正在读取美股排名源，稍后会按节点内股票平均 rank 更新热度。</p>
+      </div>
+    `;
+  }
+  if (!chainRankHeat?.available) {
+    return `
+      <div class="chain-dialog-section">
+        <h3>排名热度</h3>
+        <p>${escapeHtml(chainRankHeat?.error || "外部美股排名源暂时不可用。")}</p>
+      </div>
+    `;
+  }
+  const heat = node.heat;
+  if (!heat?.available) {
+    return `
+      <div class="chain-dialog-section">
+        <h3>排名热度</h3>
+        <p>该节点的并集股票暂未被当前美股排名源覆盖，因此不参与热度排序。</p>
+      </div>
+    `;
+  }
+  const leaders = heat.rankedStocks
+    .slice(0, 8)
+    .map((stock) => `<span>${escapeHtml(stock.ticker)} #${escapeHtml(stock.rankInfo.rank)}</span>`)
+    .join("");
+  return `
+    <div class="chain-dialog-section">
+      <h3>排名热度</h3>
+      <p>产业链热度 #${heat.heatRank}；平均排名 ${fmtChainHeat(heat.heatScore)}；排名源覆盖 ${heat.rankedCount}/${heat.totalCount} 只节点股票。平均排名越低，说明该节点中被覆盖股票整体越靠前。</p>
+      <div class="node-rank-leaders">${leaders}</div>
+    </div>
   `;
 }
 
@@ -744,6 +973,7 @@ function openChainDialog(key) {
       <h3>可映射板块</h3>
       <p>${escapeHtml(node.related)}</p>
     </div>
+    ${renderNodeHeatDetails(node)}
     <div class="chain-dialog-section chain-stock-section">
       <h3>并集中的相关股票</h3>
       ${renderStockLinks(node.stocks)}
@@ -765,7 +995,14 @@ function closeChainDialog() {
 document.addEventListener("DOMContentLoaded", () => {
   indexNodes();
   renderChain();
+  renderChainRankSummary();
+  loadChainRankHeat();
   document.getElementById("aiChainBoard").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-node]");
+    if (!button) return;
+    openChainDialog(button.dataset.node);
+  });
+  document.getElementById("chainRankSummary").addEventListener("click", (event) => {
     const button = event.target.closest("[data-node]");
     if (!button) return;
     openChainDialog(button.dataset.node);
