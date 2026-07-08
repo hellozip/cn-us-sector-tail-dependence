@@ -3,6 +3,9 @@ const FUNDAMENTAL_PAGE_URL = "https://hellozip.github.io/us-stock-fundamental-da
 const qqqSourceNote =
   "股票筛选口径：严格并集 = Nasdaq-100/QQQ 中的产业链相关股票 ∪ 你的基本面资料库中已覆盖的产业链相关股票。Nasdaq 成分数据时间为 Jul 6, 2026 11:24 AM；QQQ 实际持仓会随基金披露变化。";
 
+const cnSourceNote =
+  "A股筛选口径：沿用同一套 AI 产业链节点，每个节点维护 5 只代表性 A 股，仅用于产业链观察和横向比较，不构成买卖建议。";
+
 const stockCatalog = {
   NVDA: {
     name: "NVIDIA",
@@ -420,6 +423,101 @@ const stockCatalog = {
   },
 };
 
+const cnStockCatalog = {
+  "688981.SH": { name: "SMIC", cn: "中芯国际", role: "晶圆代工、先进制程与国产半导体制造底座", market: "A股", exchange: "科创板", officialUrl: "https://www.smics.com/" },
+  "688256.SH": { name: "Cambricon", cn: "寒武纪", role: "AI 训练与推理芯片、智能计算加速卡", market: "A股", exchange: "科创板", officialUrl: "https://www.cambricon.com/" },
+  "688041.SH": { name: "Hygon", cn: "海光信息", role: "CPU、DCU 与国产算力芯片平台", market: "A股", exchange: "科创板", officialUrl: "https://www.hygon.cn/" },
+  "002371.SZ": { name: "NAURA", cn: "北方华创", role: "半导体设备、刻蚀与薄膜沉积设备", market: "A股", exchange: "深交所", officialUrl: "https://www.naura.com/" },
+  "603501.SH": { name: "Will Semiconductor", cn: "韦尔股份", role: "图像传感器、车载与边缘 AI 感知芯片", market: "A股", exchange: "上交所", officialUrl: "https://www.willsemi.com/" },
+  "603019.SH": { name: "Sugon", cn: "中科曙光", role: "AI 服务器、高性能计算与算力基础设施", market: "A股", exchange: "上交所", officialUrl: "https://www.sugon.com/" },
+  "000977.SZ": { name: "Inspur Information", cn: "浪潮信息", role: "AI 服务器、整机交付与数据中心基础设施", market: "A股", exchange: "深交所", officialUrl: "https://www.inspur.com/" },
+  "601138.SH": { name: "Foxconn Industrial Internet", cn: "工业富联", role: "AI 服务器制造、云计算硬件与智能制造", market: "A股", exchange: "上交所", officialUrl: "https://www.fii-foxconn.com/" },
+  "000938.SZ": { name: "Unisplendour", cn: "紫光股份", role: "云网络、服务器、交换机与企业基础设施", market: "A股", exchange: "深交所", officialUrl: "https://www.unisplendour.com/" },
+  "002261.SZ": { name: "Talkweb", cn: "拓维信息", role: "国产算力、教育信息化与 AI 应用平台", market: "A股", exchange: "深交所", officialUrl: "https://www.talkweb.com.cn/" },
+  "688111.SH": { name: "Kingsoft Office", cn: "金山办公", role: "AI 办公、文档协作与企业知识管理", market: "A股", exchange: "科创板", officialUrl: "https://www.wps.cn/" },
+  "600588.SH": { name: "Yonyou", cn: "用友网络", role: "企业云服务、ERP 与 AI 开发平台", market: "A股", exchange: "上交所", officialUrl: "https://www.yonyou.com/" },
+  "600845.SH": { name: "Baosight Software", cn: "宝信软件", role: "工业软件、云服务、数据中心与 MLOps 运维", market: "A股", exchange: "上交所", officialUrl: "https://www.baosight.com/" },
+  "300454.SZ": { name: "Sangfor", cn: "深信服", role: "云计算、网络安全、企业 IT 基础设施", market: "A股", exchange: "创业板", officialUrl: "https://www.sangfor.com.cn/" },
+  "603881.SH": { name: "Athub", cn: "数据港", role: "IDC 数据中心、机柜与云基础设施", market: "A股", exchange: "上交所", officialUrl: "https://www.athub.com/" },
+  "300383.SZ": { name: "Sinnet", cn: "光环新网", role: "IDC、云计算服务与数据中心运营", market: "A股", exchange: "创业板", officialUrl: "https://www.sinnet.com.cn/" },
+  "300738.SZ": { name: "Ofidc", cn: "奥飞数据", role: "数据中心、云计算与算力基础设施服务", market: "A股", exchange: "创业板", officialUrl: "https://www.ofidc.com/" },
+  "300442.SZ": { name: "Range Intelligent", cn: "润泽科技", role: "大型数据中心、算力基础设施与机柜资源", market: "A股", exchange: "创业板", officialUrl: "https://www.rzidc.com/" },
+  "002335.SZ": { name: "Kehua Data", cn: "科华数据", role: "数据中心电源、储能与算力基础设施", market: "A股", exchange: "深交所", officialUrl: "https://www.kehua.com/" },
+  "300846.SZ": { name: "CapitalOnline", cn: "首都在线", role: "云服务、GPU 算力租赁与海外云资源", market: "A股", exchange: "创业板", officialUrl: "https://www.capitalonline.net/" },
+  "688787.SH": { name: "Speechocean", cn: "海天瑞声", role: "训练数据、语音数据与数据标注服务", market: "A股", exchange: "科创板", officialUrl: "https://www.speechocean.com/" },
+  "300229.SZ": { name: "TRS", cn: "拓尔思", role: "语义智能、数据中台、大模型与智能搜索", market: "A股", exchange: "创业板", officialUrl: "https://www.trs.com.cn/" },
+  "002230.SZ": { name: "iFLYTEK", cn: "科大讯飞", role: "语音 AI、大模型、教育与行业应用平台", market: "A股", exchange: "深交所", officialUrl: "https://www.iflytek.com/" },
+  "300678.SZ": { name: "CASIC", cn: "中科信息", role: "数据智能、行业 AI 与信息化解决方案", market: "A股", exchange: "创业板", officialUrl: "https://www.casinfo.com.cn/" },
+  "300766.SZ": { name: "Daily Interactive", cn: "每日互动", role: "数据智能、用户画像、数据采集与分析", market: "A股", exchange: "创业板", officialUrl: "https://www.getui.com/" },
+  "300418.SZ": { name: "Kunlun Tech", cn: "昆仑万维", role: "大模型、AI 搜索、AIGC 与互联网应用", market: "A股", exchange: "创业板", officialUrl: "https://www.kunlun.com/" },
+  "601360.SH": { name: "360 Security", cn: "三六零", role: "AI 搜索、大模型、浏览器入口与网络安全", market: "A股", exchange: "上交所", officialUrl: "https://www.360.cn/" },
+  "688327.SH": { name: "Cloudwalk", cn: "云从科技", role: "计算机视觉、大模型与行业智能平台", market: "A股", exchange: "科创板", officialUrl: "https://www.cloudwalk.com/" },
+  "300496.SZ": { name: "ThunderSoft", cn: "中科创达", role: "端侧 AI、智能汽车操作系统与边缘算法", market: "A股", exchange: "创业板", officialUrl: "https://www.thundersoft.com/" },
+  "688088.SH": { name: "ArcSoft", cn: "虹软科技", role: "视觉算法、影像 AI 与智能终端算法", market: "A股", exchange: "科创板", officialUrl: "https://www.arcsoft.com.cn/" },
+  "300378.SZ": { name: "Digiwin", cn: "鼎捷数智", role: "工业软件、企业 AI 开发平台与数字化管理", market: "A股", exchange: "创业板", officialUrl: "https://www.digiwin.com/" },
+  "300624.SZ": { name: "Wondershare", cn: "万兴科技", role: "AI 创意软件、视频生成与办公效率工具", market: "A股", exchange: "创业板", officialUrl: "https://www.wondershare.cn/" },
+  "300687.SZ": { name: "SIE Consulting", cn: "赛意信息", role: "企业数字化、工业软件与模型运维场景", market: "A股", exchange: "创业板", officialUrl: "https://www.chinasie.com/" },
+  "300166.SZ": { name: "BONC", cn: "东方国信", role: "大数据平台、数据治理与行业智能分析", market: "A股", exchange: "创业板", officialUrl: "https://www.bonc.com.cn/" },
+  "688031.SH": { name: "Transwarp", cn: "星环科技", role: "大数据平台、分布式数据库与向量检索底座", market: "A股", exchange: "科创板", officialUrl: "https://www.transwarp.cn/" },
+  "688692.SH": { name: "Dameng", cn: "达梦数据", role: "国产数据库、企业数据底座与知识库基础设施", market: "A股", exchange: "科创板", officialUrl: "https://www.dameng.com/" },
+  "002368.SZ": { name: "Taiji", cn: "太极股份", role: "政企数据平台、系统集成与知识库建设", market: "A股", exchange: "深交所", officialUrl: "https://www.taiji.com.cn/" },
+  "603636.SH": { name: "Linewell", cn: "南威软件", role: "政务数据平台、知识库与数字政府应用", market: "A股", exchange: "上交所", officialUrl: "https://www.linewell.com/" },
+  "688095.SH": { name: "Foxit", cn: "福昕软件", role: "PDF 文档软件、AI 办公与企业文档处理", market: "A股", exchange: "科创板", officialUrl: "https://www.foxitsoftware.cn/" },
+  "603039.SH": { name: "Weaver", cn: "泛微网络", role: "协同办公、OA 与企业流程智能化", market: "A股", exchange: "上交所", officialUrl: "https://www.weaver.com.cn/" },
+  "300364.SZ": { name: "COL", cn: "中文在线", role: "数字内容、AI 搜索与生成式内容应用", market: "A股", exchange: "创业板", officialUrl: "https://www.col.com/" },
+  "300559.SZ": { name: "Jiafa Education", cn: "佳发教育", role: "智慧教育、考试信息化与教育 AI 场景", market: "A股", exchange: "创业板", officialUrl: "https://www.jf-r.com/" },
+  "002841.SZ": { name: "CVTE", cn: "视源股份", role: "教育交互屏、会议平板与端侧智能硬件", market: "A股", exchange: "深交所", officialUrl: "https://www.cvte.com/" },
+  "002955.SZ": { name: "HiteVision", cn: "鸿合科技", role: "智慧教育硬件、交互显示与课堂数字化", market: "A股", exchange: "深交所", officialUrl: "https://www.honghe-tech.com/" },
+  "300253.SZ": { name: "Winning Health", cn: "卫宁健康", role: "医疗信息化、医院数据平台与 AI 医疗应用", market: "A股", exchange: "创业板", officialUrl: "https://www.winning.com.cn/" },
+  "300451.SZ": { name: "B-Soft", cn: "创业慧康", role: "医疗 IT、电子病历与智慧医院平台", market: "A股", exchange: "创业板", officialUrl: "https://www.bsoft.com.cn/" },
+  "603108.SH": { name: "Runda Medical", cn: "润达医疗", role: "检验数据、医疗服务网络与 AI 医疗场景", market: "A股", exchange: "上交所", officialUrl: "https://www.rundamedical.com/" },
+  "300168.SZ": { name: "Wonders Information", cn: "万达信息", role: "医疗医保信息化与城市数据平台", market: "A股", exchange: "创业板", officialUrl: "https://www.wondersgroup.com/" },
+  "002123.SZ": { name: "Montnets", cn: "梦网科技", role: "企业通信、智能客服与消息平台", market: "A股", exchange: "深交所", officialUrl: "https://www.montnets.com/" },
+  "300002.SZ": { name: "Ultrapower", cn: "神州泰岳", role: "ICT 运维、智能客服与企业服务软件", market: "A股", exchange: "创业板", officialUrl: "https://www.ultrapower.com.cn/" },
+  "300634.SZ": { name: "Richinfo", cn: "彩讯股份", role: "协同办公、智能客服与企业通信服务", market: "A股", exchange: "创业板", officialUrl: "https://www.richinfo.cn/" },
+  "002920.SZ": { name: "Desay SV", cn: "德赛西威", role: "智能座舱、自动驾驶域控与车载 AI", market: "A股", exchange: "深交所", officialUrl: "https://www.desaysv.com/" },
+  "002405.SZ": { name: "NavInfo", cn: "四维图新", role: "高精地图、自动驾驶数据与车载软件", market: "A股", exchange: "深交所", officialUrl: "https://www.navinfo.com/" },
+  "600699.SH": { name: "Joyson Electronics", cn: "均胜电子", role: "汽车电子、智能驾驶与安全系统", market: "A股", exchange: "上交所", officialUrl: "https://www.joyson.cn/" },
+  "002906.SZ": { name: "Foryou", cn: "华阳集团", role: "智能座舱、HUD 与车载电子", market: "A股", exchange: "深交所", officialUrl: "https://www.foryougroup.com/" },
+  "688400.SH": { name: "Luster", cn: "凌云光", role: "机器视觉、工业质检与光学成像系统", market: "A股", exchange: "科创板", officialUrl: "https://www.lusterinc.com/" },
+  "688686.SH": { name: "OPT", cn: "奥普特", role: "机器视觉核心部件、工业质检与自动化检测", market: "A股", exchange: "科创板", officialUrl: "https://www.optmv.com/" },
+  "300802.SZ": { name: "Jutze", cn: "矩子科技", role: "AOI 检测、机器视觉与电子制造质检", market: "A股", exchange: "创业板", officialUrl: "https://www.jutze.com.cn/" },
+  "688003.SH": { name: "TZTEK", cn: "天准科技", role: "机器视觉装备、精密测量与工业检测", market: "A股", exchange: "科创板", officialUrl: "https://www.tztek.com/" },
+  "300567.SZ": { name: "Wuhan Jingce", cn: "精测电子", role: "显示与半导体检测设备、工业质检", market: "A股", exchange: "创业板", officialUrl: "https://www.wuhanjingce.com/" },
+  "688561.SH": { name: "QAX", cn: "奇安信", role: "政企网络安全、终端安全与威胁响应", market: "A股", exchange: "科创板", officialUrl: "https://www.qianxin.com/" },
+  "002439.SZ": { name: "Venustech", cn: "启明星辰", role: "网络安全、态势感知与政企安全运营", market: "A股", exchange: "深交所", officialUrl: "https://www.venustech.com.cn/" },
+  "300369.SZ": { name: "NSFOCUS", cn: "绿盟科技", role: "云安全、网络攻防与安全服务", market: "A股", exchange: "创业板", officialUrl: "https://www.nsfocus.com.cn/" },
+  "002747.SZ": { name: "Estun", cn: "埃斯顿", role: "工业机器人、伺服系统与智能制造", market: "A股", exchange: "深交所", officialUrl: "https://www.estun.com/" },
+  "300124.SZ": { name: "Inovance", cn: "汇川技术", role: "工控自动化、伺服系统与工业机器人核心部件", market: "A股", exchange: "创业板", officialUrl: "https://www.inovance.com/" },
+  "300024.SZ": { name: "Siasun", cn: "机器人", role: "工业机器人、移动机器人与智能制造装备", market: "A股", exchange: "创业板", officialUrl: "https://www.siasun.com/" },
+  "300607.SZ": { name: "Topstar", cn: "拓斯达", role: "工业机器人、注塑自动化与智能制造", market: "A股", exchange: "创业板", officialUrl: "https://www.topstarltd.com/" },
+  "688017.SH": { name: "Leaderdrive", cn: "绿的谐波", role: "机器人精密减速器、谐波传动核心部件", market: "A股", exchange: "科创板", officialUrl: "https://www.leaderdrive.com/" },
+};
+
+const cnChainStocksByVisual = {
+  chip: ["688981.SH", "688256.SH", "688041.SH", "002371.SZ", "603501.SH"],
+  server: ["603019.SH", "000977.SZ", "601138.SH", "000938.SZ", "002261.SZ"],
+  cloud: ["688111.SH", "600588.SH", "600845.SH", "000938.SZ", "300454.SZ"],
+  datacenter: ["603881.SH", "300383.SZ", "300738.SZ", "300442.SZ", "002335.SZ"],
+  compute: ["603019.SH", "000977.SZ", "300442.SZ", "300846.SZ", "002261.SZ"],
+  data: ["688787.SH", "300229.SZ", "002230.SZ", "300678.SZ", "300766.SZ"],
+  model: ["002230.SZ", "300418.SZ", "601360.SH", "300229.SZ", "688327.SH"],
+  framework: ["688256.SH", "688041.SH", "002230.SZ", "300496.SZ", "688088.SH"],
+  platform: ["002230.SZ", "688111.SH", "600588.SH", "300378.SZ", "300624.SZ"],
+  mlops: ["600845.SH", "600588.SH", "300687.SZ", "300166.SZ", "300229.SZ"],
+  vector: ["688031.SH", "300229.SZ", "688692.SH", "002368.SZ", "603636.SH"],
+  inference: ["688256.SH", "688041.SH", "603019.SH", "002230.SZ", "000977.SZ"],
+  office: ["688111.SH", "688095.SH", "300624.SZ", "002230.SZ", "603039.SH"],
+  search: ["601360.SH", "300418.SZ", "300229.SZ", "300766.SZ", "300364.SZ"],
+  education: ["002230.SZ", "300559.SZ", "002841.SZ", "002261.SZ", "002955.SZ"],
+  medical: ["002230.SZ", "300253.SZ", "300451.SZ", "603108.SH", "300168.SZ"],
+  service: ["002230.SZ", "002123.SZ", "300002.SZ", "300229.SZ", "300634.SZ"],
+  auto: ["002920.SZ", "300496.SZ", "002405.SZ", "600699.SH", "002906.SZ"],
+  inspection: ["688400.SH", "688686.SH", "300802.SZ", "688003.SH", "300567.SZ"],
+  security: ["601360.SH", "688561.SH", "300454.SZ", "002439.SZ", "300369.SZ"],
+  robot: ["002747.SZ", "300124.SZ", "300024.SZ", "300607.SZ", "688017.SH"],
+};
+
 const chainLayers = [
   {
     id: "upstream",
@@ -624,6 +722,7 @@ const chainHeatByKey = new Map();
 let chainRankHeat = null;
 let chainRankLoading = true;
 let chainHeatList = [];
+let currentMarket = "us";
 
 function fundamentalUrl(ticker) {
   const params = new URLSearchParams({
@@ -634,11 +733,28 @@ function fundamentalUrl(ticker) {
   return `${FUNDAMENTAL_PAGE_URL}?${params.toString()}#companies`;
 }
 
-function resolveStocks(tickers) {
+function activeCatalog(market = currentMarket) {
+  return market === "cn" ? cnStockCatalog : stockCatalog;
+}
+
+function activeSourceNote() {
+  return currentMarket === "cn" ? cnSourceNote : qqqSourceNote;
+}
+
+function resolveStocks(tickers, market = currentMarket) {
   const seen = new Set();
+  const catalog = activeCatalog(market);
   return tickers
-    .filter((ticker) => stockCatalog[ticker] && !seen.has(ticker) && seen.add(ticker))
-    .map((ticker) => ({ ticker, ...stockCatalog[ticker], url: fundamentalUrl(ticker) }));
+    .filter((ticker) => catalog[ticker] && !seen.has(ticker) && seen.add(ticker))
+    .map((ticker) => ({ ticker, ...catalog[ticker], url: market === "us" ? fundamentalUrl(ticker) : "" }));
+}
+
+function resolveNodeStocks(item, market = currentMarket) {
+  const [, visual, , , , tickers = []] = item;
+  if (market === "cn") {
+    return resolveStocks(cnChainStocksByVisual[visual] || [], "cn");
+  }
+  return resolveStocks(tickers, "us");
 }
 
 function chainNodeKey(layerId, name) {
@@ -651,13 +767,14 @@ function fmtChainHeat(value) {
 }
 
 function rankInfoForTicker(ticker) {
+  if (currentMarket !== "us") return null;
   if (!chainRankHeat?.rankByTicker) return null;
   return chainRankHeat.rankByTicker[String(ticker || "").trim().toUpperCase()] || null;
 }
 
 function computeNodeHeat(layer, item, originalIndex) {
-  const [name, , , , , tickers = []] = item;
-  const stocks = resolveStocks(tickers);
+  const [name] = item;
+  const stocks = resolveNodeStocks(item);
   const rankedStocks = stocks
     .map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }))
     .filter((stock) => stock.rankInfo && Number.isFinite(Number(stock.rankInfo.rank)))
@@ -696,7 +813,7 @@ function computeNodeHeat(layer, item, originalIndex) {
 function buildChainHeat() {
   chainHeatByKey.clear();
   chainHeatList = [];
-  if (!chainRankHeat?.available) return;
+  if (currentMarket !== "us" || !chainRankHeat?.available) return;
   chainLayers.forEach((layer) => {
     layer.items.forEach((item, originalIndex) => {
       const heat = computeNodeHeat(layer, item, originalIndex);
@@ -740,6 +857,10 @@ function orderedLayerItems(layer) {
 }
 
 function renderNodeHeatLine(key) {
+  if (currentMarket === "cn") {
+    const heat = chainHeatByKey.get(key);
+    return `<span class="ai-node-heatline cn">A股代表股：${escapeHtml(heat?.totalCount ?? 5)}只</span>`;
+  }
   if (chainRankLoading) {
     return `<span class="ai-node-heatline">排名热度：读取中</span>`;
   }
@@ -763,7 +884,31 @@ function renderChainRankSummary() {
   const target = document.getElementById("chainRankSummary");
   const method = document.getElementById("chainRankMethod");
   const source = document.getElementById("chainRankSource");
+  const eyebrow = document.getElementById("chainRankEyebrow");
+  const title = document.getElementById("chainRankTitle");
   if (!target || !method || !source) return;
+  if (currentMarket === "cn") {
+    if (eyebrow) eyebrow.textContent = "A股代表池";
+    if (title) title.textContent = "同一产业链节点下的A股代表股票";
+    method.textContent = "A股模式沿用美股图谱相同的上游基础层、中游技术/平台层、下游应用层划分；每个节点选取5只代表性A股，按人工维护的代表性顺序展示，不使用美股排名源排序。";
+    source.hidden = true;
+    const nodes = chainLayers.flatMap((layer) => layer.items.map((item) => {
+      const [name] = item;
+      const key = chainNodeKey(layer.id, name);
+      const stocks = resolveNodeStocks(item, "cn");
+      return { key, layerTitle: layer.title, name, stocks };
+    }));
+    target.innerHTML = nodes.map((node) => `
+      <button class="chain-rank-chip cn" type="button" data-node="${escapeHtml(node.key)}">
+        <span>${node.stocks.length}</span>
+        <strong>${escapeHtml(node.name)}</strong>
+        <small>${escapeHtml(node.layerTitle)} · ${escapeHtml(stockHint(node.stocks.map((stock) => stock.ticker)))}</small>
+      </button>
+    `).join("");
+    return;
+  }
+  if (eyebrow) eyebrow.textContent = "排名热度";
+  if (title) title.textContent = "按对应股票平均排名重排产业链节点";
   if (chainRankLoading) {
     method.textContent = "正在读取美股排名源。热度 = 节点内已匹配股票 rank 之和 / 已匹配股票数量，数值越低代表热度越高。";
     source.hidden = true;
@@ -818,6 +963,9 @@ function stockHint(tickers) {
 }
 
 function stockBadges(stock) {
+  if (stock.market === "A股") {
+    return ["A股", stock.exchange || ""].filter(Boolean);
+  }
   return [
     stock.qqq ? "QQQ" : "",
     stock.research ? "自研资料库" : "",
@@ -827,17 +975,19 @@ function stockBadges(stock) {
 function renderChain() {
   const board = document.getElementById("aiChainBoard");
   const html = chainLayers.map((layer) => {
-    const items = orderedLayerItems(layer).map(([name, visual, summary, , , tickers = []]) => {
+    const items = orderedLayerItems(layer).map((item) => {
+      const [name, visual, summary] = item;
       const key = chainNodeKey(layer.id, name);
-      const stocks = resolveStocks(tickers);
+      const stocks = resolveNodeStocks(item);
       const heat = chainHeatByKey.get(key);
+      const stockLineLabel = currentMarket === "cn" ? "A股代表股" : "并集股票";
       return `
         <button class="ai-node ${layer.id} ${heat?.available && heat.heatRank <= 5 ? "hot-node" : ""}" type="button" data-node="${escapeHtml(key)}" aria-label="查看${escapeHtml(name)}">
           <span class="ai-node-image ${escapeHtml(visual)}" aria-hidden="true"><span></span></span>
           <span class="ai-node-text">
             <strong>${escapeHtml(name)}</strong>
             <small>${escapeHtml(summary)}</small>
-            <span class="ai-node-stockline">并集股票：${escapeHtml(stockHint(stocks.map((stock) => stock.ticker)))}</span>
+            <span class="ai-node-stockline">${stockLineLabel}：${escapeHtml(stockHint(stocks.map((stock) => stock.ticker)))}</span>
             ${renderNodeHeatLine(key)}
           </span>
         </button>
@@ -859,7 +1009,8 @@ function renderChain() {
 function indexNodes() {
   nodeMap.clear();
   chainLayers.forEach((layer) => {
-    layer.items.forEach(([name, visual, summary, watch, related, tickers = []]) => {
+    layer.items.forEach((item) => {
+      const [name, visual, summary, watch, related] = item;
       const key = chainNodeKey(layer.id, name);
       nodeMap.set(key, {
         layer,
@@ -868,7 +1019,7 @@ function indexNodes() {
         summary,
         watch,
         related,
-        stocks: resolveStocks(tickers),
+        stocks: resolveNodeStocks(item),
         heat: chainHeatByKey.get(key) || null,
       });
     });
@@ -879,13 +1030,14 @@ function renderStockLinks(stocks) {
   if (!stocks.length) {
     return `<p class="stock-source-note">暂无符合并集口径的产业链股票。</p>`;
   }
-  const rankedStocks = stocks
-    .map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }))
-    .sort((left, right) => {
+  const rankedStocks = stocks.map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }));
+  if (currentMarket === "us") {
+    rankedStocks.sort((left, right) => {
       const leftRank = Number(left.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
       const rightRank = Number(right.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
       return leftRank - rightRank || left.ticker.localeCompare(right.ticker);
     });
+  }
   return `
     <div class="stock-chip-list">
       ${rankedStocks.map((stock) => `
@@ -897,9 +1049,11 @@ function renderStockLinks(stocks) {
             <div class="stock-source-badges">
               ${stockBadges(stock).map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}
               ${
-                stock.rankInfo
-                  ? `<em class="rank-source-badge">排名 #${escapeHtml(stock.rankInfo.rank)} · ${escapeHtml(stock.rankInfo.stock_type || stock.rankInfo.sector || "")}</em>`
-                  : `<em class="rank-source-badge muted">排名源未覆盖</em>`
+                currentMarket === "us"
+                  ? stock.rankInfo
+                    ? `<em class="rank-source-badge">排名 #${escapeHtml(stock.rankInfo.rank)} · ${escapeHtml(stock.rankInfo.stock_type || stock.rankInfo.sector || "")}</em>`
+                    : `<em class="rank-source-badge muted">排名源未覆盖</em>`
+                  : ""
               }
             </div>
           </div>
@@ -914,11 +1068,24 @@ function renderStockLinks(stocks) {
         </article>
       `).join("")}
     </div>
-    <p class="stock-source-note">${escapeHtml(qqqSourceNote)}</p>
+    <p class="stock-source-note">${escapeHtml(activeSourceNote())}</p>
   `;
 }
 
 function renderNodeHeatDetails(node) {
+  if (currentMarket === "cn") {
+    const leaders = node.stocks
+      .slice(0, 5)
+      .map((stock) => `<span>${escapeHtml(stock.ticker)} ${escapeHtml(stock.cn)}</span>`)
+      .join("");
+    return `
+      <div class="chain-dialog-section">
+        <h3>A股代表池</h3>
+        <p>该节点沿用同一产业链划分，选取5只A股代表公司，用于观察国内产业链映射和横向对比；排序为人工维护的代表性顺序，不是买卖建议。</p>
+        <div class="node-rank-leaders">${leaders}</div>
+      </div>
+    `;
+  }
   if (chainRankLoading) {
     return `
       <div class="chain-dialog-section">
@@ -960,6 +1127,10 @@ function renderNodeHeatDetails(node) {
 function openChainDialog(key) {
   const node = nodeMap.get(key);
   if (!node) return;
+  const stockSectionTitle = currentMarket === "cn" ? "A股代表股票" : "并集中的相关股票";
+  const usageText = currentMarket === "cn"
+    ? "先看节点对应的A股代表公司，再通过官网按钮查看公司信息；A股暂未接入本项目自研基本面映射时，自研网站按钮会置灰。后续可以把这些公司继续接入资金流、相关性和波动异常指标，用于观察国内AI产业链扩散方向。"
+    : "先看节点对应的并集股票，再根据按钮进入自研基本面页或公司官网；没有自研映射的股票，自研网站按钮会置灰。随后把这些公司与资金流排名、上尾/中部/下尾相关性和波动异常一起看。如果同一产业链节点的多只股票同时走强，说明资金可能在沿该链条扩散；如果强度偏离过大，也要同时留意回调风险。";
   document.getElementById("chainDialogEyebrow").textContent = node.layer.title;
   document.getElementById("chainDialogTitle").textContent = node.name;
   document.getElementById("chainDialogSummary").textContent = node.summary;
@@ -975,12 +1146,12 @@ function openChainDialog(key) {
     </div>
     ${renderNodeHeatDetails(node)}
     <div class="chain-dialog-section chain-stock-section">
-      <h3>并集中的相关股票</h3>
+      <h3>${stockSectionTitle}</h3>
       ${renderStockLinks(node.stocks)}
     </div>
     <div class="chain-dialog-section chain-dialog-wide">
       <h3>使用方式</h3>
-      <p>先看节点对应的并集股票，再根据按钮进入自研基本面页或公司官网；没有自研映射的股票，自研网站按钮会置灰。随后把这些公司与资金流排名、上尾/中部/下尾相关性和波动异常一起看。如果同一产业链节点的多只股票同时走强，说明资金可能在沿该链条扩散；如果强度偏离过大，也要同时留意回调风险。</p>
+      <p>${usageText}</p>
     </div>
   `;
   document.getElementById("chainDialog").hidden = false;
@@ -992,15 +1163,40 @@ function closeChainDialog() {
   document.body.classList.remove("modal-open");
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+function updateMarketButtons() {
+  document.querySelectorAll("[data-market]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.market === currentMarket);
+  });
+}
+
+function setMarket(market) {
+  currentMarket = market === "cn" ? "cn" : "us";
+  updateMarketButtons();
+  if (currentMarket === "us" && !chainRankHeat) {
+    chainRankLoading = true;
+  } else {
+    chainRankLoading = false;
+  }
+  buildChainHeat();
   indexNodes();
   renderChain();
   renderChainRankSummary();
-  loadChainRankHeat();
+  if (currentMarket === "us" && !chainRankHeat) {
+    loadChainRankHeat();
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setMarket("us");
   document.getElementById("aiChainBoard").addEventListener("click", (event) => {
     const button = event.target.closest("[data-node]");
     if (!button) return;
     openChainDialog(button.dataset.node);
+  });
+  document.querySelector(".chain-market-toggle").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-market]");
+    if (!button) return;
+    setMarket(button.dataset.market);
   });
   document.getElementById("chainRankSummary").addEventListener("click", (event) => {
     const button = event.target.closest("[data-node]");

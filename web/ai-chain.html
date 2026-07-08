@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI产业链图谱</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260706-ai-chain-rank-heat" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260709-ai-chain-cn" />
 </head>
 <body>
   <header class="app-header">
@@ -30,13 +30,17 @@
         <span><i class="legend-midstream"></i>中游技术/平台层</span>
         <span><i class="legend-downstream"></i>下游应用层</span>
       </div>
+      <div class="chain-market-toggle" aria-label="市场选择">
+        <button class="active" type="button" data-market="us">美股</button>
+        <button type="button" data-market="cn">A股</button>
+      </div>
     </section>
 
     <section class="chain-rank-panel" aria-label="AI产业链排名热度">
       <div class="chain-rank-heading">
         <div>
-          <p class="eyebrow">排名热度</p>
-          <h2>按对应股票平均排名重排产业链节点</h2>
+          <p id="chainRankEyebrow" class="eyebrow">排名热度</p>
+          <h2 id="chainRankTitle">按对应股票平均排名重排产业链节点</h2>
           <p id="chainRankMethod">正在读取美股排名源。热度 = 节点内已匹配股票 rank 之和 / 已匹配股票数量，数值越低代表热度越高。</p>
         </div>
         <a id="chainRankSource" class="chain-rank-source" href="#" target="_blank" rel="noopener noreferrer" hidden>查看排名来源</a>
@@ -62,6 +66,6 @@
     </section>
   </div>
 
-  <script src="/static/ai-chain.js?v=20260706-ai-chain-rank-heat"></script>
+  <script src="/static/ai-chain.js?v=20260709-ai-chain-cn"></script>
 </body>
 </html>
