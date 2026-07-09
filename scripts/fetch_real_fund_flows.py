@@ -381,10 +381,20 @@ def _load_us_assets(path: Path) -> pd.DataFrame:
     return assets[(market == "US") & ticker.ne("")].copy()
 
 
-def _combined_history(frame: pd.DataFrame, path: Path, keys: list[str]) -> pd.DataFrame:
+def _latest_report_file(name: str) -> Path | None:
+    reports_dir = PROJECT_ROOT / "reports"
+    if not reports_dir.exists():
+        return None
+    candidates = [path / name for path in reports_dir.iterdir() if path.is_dir() and (path / name).exists()]
+    return sorted(candidates, key=lambda path: path.parent.name)[-1] if candidates else None
+
+
+def _combined_history(frame: pd.DataFrame, path: Path, keys: list[str], seed_path: Path | None = None) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     if path.exists():
         frames.append(pd.read_csv(path))
+    elif seed_path and seed_path.exists():
+        frames.append(pd.read_csv(seed_path))
     if not frame.empty:
         frames.append(frame)
     if not frames:
@@ -529,23 +539,27 @@ def _write_or_remove(frame: pd.DataFrame, path: Path) -> None:
     frame.to_csv(path, index=False, encoding="utf-8-sig")
 
 
-def _write_metric_history(frame: pd.DataFrame, path: Path, keys: list[str]) -> None:
-    if frame.empty:
-        return
-    current = frame.copy()
+def _write_metric_history(frame: pd.DataFrame, path: Path, keys: list[str], seed_path: Path | None = None) -> None:
+    frames: list[pd.DataFrame] = []
     if path.exists():
-        existing = pd.read_csv(path)
-        combined = pd.concat([existing, current], ignore_index=True, sort=False)
-    else:
-        combined = current
+        frames.append(pd.read_csv(path))
+    elif seed_path and seed_path.exists():
+        frames.append(pd.read_csv(seed_path))
+    if not frame.empty:
+        frames.append(frame.copy())
+    if not frames:
+        return
+    combined = pd.concat(frames, ignore_index=True, sort=False)
     combined = combined.drop_duplicates(subset=keys, keep="last").sort_values(keys).reset_index(drop=True)
     combined.to_csv(path, index=False, encoding="utf-8-sig")
 
 
-def _write_source_rows(frame: pd.DataFrame, path: Path) -> None:
+def _write_source_rows(frame: pd.DataFrame, path: Path, seed_path: Path | None = None) -> None:
     frames: list[pd.DataFrame] = []
     if path.exists():
         frames.append(pd.read_csv(path))
+    elif seed_path and seed_path.exists():
+        frames.append(pd.read_csv(seed_path))
     if not frame.empty:
         frames.append(frame)
     if not frames:
@@ -598,6 +612,23 @@ def main() -> None:
         else:
             raise RuntimeError("No Eastmoney board codes were configured or resolved from mapping")
         flow, size, sources, missing = build_real_flow_files(boards, mapping)
+        if flow.empty and codes and not args.strict:
+            fallback_page_size = max(args.page_size, 200)
+            try:
+                fallback_boards, fallback_warnings = fetch_eastmoney_boards(page_size=fallback_page_size, strict=False)
+                warnings.extend(fallback_warnings)
+                fallback_flow, fallback_size, fallback_sources, fallback_missing = build_real_flow_files(fallback_boards, mapping)
+                if not fallback_flow.empty:
+                    warnings.append("东方财富 BK 代码批量接口未生成有效映射，已回退到板块资金流排名页并按板块名称映射")
+                    boards, flow, size, sources, missing = (
+                        fallback_boards,
+                        fallback_flow,
+                        fallback_size,
+                        fallback_sources,
+                        fallback_missing,
+                    )
+            except RuntimeError as exc:
+                warnings.append(f"东方财富排名页 fallback 抓取失败：{exc}")
     else:
         warnings.append("已跳过东方财富中国板块抓取，仅更新美股 ETF 快照和估算资金流")
 
@@ -611,7 +642,7 @@ def main() -> None:
             us_snapshots, us_warnings = fetch_us_etf_snapshots(us_assets)
             warnings.extend(us_warnings)
             snapshot_path = output_dir / "us_etf_snapshots.csv"
-            snapshot_history = _combined_history(us_snapshots, snapshot_path, ["date", "id"])
+            snapshot_history = _combined_history(us_snapshots, snapshot_path, ["date", "id"], _latest_report_file("us_etf_snapshots.csv"))
             if not snapshot_history.empty:
                 snapshot_history.to_csv(snapshot_path, index=False, encoding="utf-8-sig")
             us_flow, us_size, us_sources, us_flow_warnings = build_us_estimated_flow_files(us_snapshots, snapshot_history)
@@ -625,9 +656,9 @@ def main() -> None:
 
     if not args.us_only:
         _write_or_remove(boards, output_dir / "eastmoney_sector_boards.csv")
-    _write_metric_history(combined_flow, output_dir / "fund_flow_amount.csv", ["date", "id"])
-    _write_metric_history(combined_size, output_dir / "sector_total_size.csv", ["date", "id"])
-    _write_source_rows(combined_sources, output_dir / "fund_flow_sources.csv")
+    _write_metric_history(combined_flow, output_dir / "fund_flow_amount.csv", ["date", "id"], _latest_report_file("fund_flow_amount.csv"))
+    _write_metric_history(combined_size, output_dir / "sector_total_size.csv", ["date", "id"], _latest_report_file("sector_total_size.csv"))
+    _write_source_rows(combined_sources, output_dir / "fund_flow_sources.csv", _latest_report_file("fund_flow_sources.csv"))
     if not args.us_only:
         _write_or_remove(missing, output_dir / "fund_flow_missing_boards.csv")
 
