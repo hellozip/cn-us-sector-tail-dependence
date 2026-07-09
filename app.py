@@ -886,15 +886,6 @@ def _execute_fund_flow_refresh(data_dir: Path) -> dict:
 
 def _request_fund_flow_refresh(data_dir: Path, *, force: bool = False, background: bool = False) -> dict:
     status = _fund_flow_refresh_status(data_dir)
-    if data_dir != OUTPUT_DIR:
-        status.update(
-            {
-                "ok": True,
-                "refresh_started": False,
-                "message": "当前读取的是快照目录，自动刷新只写入 outputs/latest。",
-            }
-        )
-        return status
     if not force and not AUTO_FUND_FLOW_REFRESH:
         status.update({"ok": True, "refresh_started": False, "message": "自动资金流刷新已关闭。"})
         return status
@@ -954,13 +945,15 @@ def _build_fund_flow_summary(
     latest_regime: pd.DataFrame,
     limit: int = 20,
     refresh_status: dict | None = None,
+    fund_flow_dir: Path | None = None,
 ) -> dict:
     returns = _read_timeseries(data_dir / "returns.csv")
-    fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
-    total_size = _read_metric_timeseries(data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
+    flow_dir = fund_flow_dir or data_dir
+    fund_flow = _read_metric_timeseries(flow_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
+    total_size = _read_metric_timeseries(flow_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
     turnover = _read_timeseries(data_dir / "turnover_amount.csv")
-    sources = _read_fund_flow_sources(data_dir / "fund_flow_sources.csv")
-    fund_flow, total_size, sources = _augment_pending_us_snapshot_rows(data_dir, fund_flow, total_size, sources)
+    sources = _read_fund_flow_sources(flow_dir / "fund_flow_sources.csv")
+    fund_flow, total_size, sources = _augment_pending_us_snapshot_rows(flow_dir, fund_flow, total_size, sources)
 
     if fund_flow.empty or total_size.empty:
         return {
@@ -1399,9 +1392,16 @@ def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
     return None
 
 
+def _active_fund_flow_dir(fallback_data_dir: Path) -> Path:
+    if (OUTPUT_DIR / "fund_flow_amount.csv").exists() and (OUTPUT_DIR / "sector_total_size.csv").exists():
+        return OUTPUT_DIR
+    return fallback_data_dir
+
+
 def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
     data_dir = _active_data_dir()
-    fund_flow_refresh = _request_fund_flow_refresh(data_dir, background=True)
+    fund_flow_refresh = _request_fund_flow_refresh(OUTPUT_DIR, background=True)
+    fund_flow_dir = _active_fund_flow_dir(data_dir)
     alpha_key = _detect_alpha_token(data_dir, _alpha_token(alpha))
     latest_regime = _read_csv(data_dir / f"latest_regime_alpha_{alpha_key}.csv")
     flow = _read_csv(data_dir / f"flow_candidates_alpha_{alpha_key}.csv", limit=30, sort_by="score")
@@ -1459,6 +1459,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "risk_count": int(risk.shape[0]),
         "latest_report_url": "/report-assets/report.html" if report_path else None,
         "uses_live_outputs": data_dir == OUTPUT_DIR,
+        "fund_flow_data_dir": str(fund_flow_dir.relative_to(ROOT)) if fund_flow_dir.exists() else str(fund_flow_dir),
     }
 
     return {
@@ -1466,7 +1467,7 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "latestRegime": _records(latest_regime),
         "flowCandidates": _records(flow),
         "riskCandidates": _records(risk),
-        "fundFlow": _build_fund_flow_summary(data_dir, latest_regime, refresh_status=fund_flow_refresh),
+        "fundFlow": _build_fund_flow_summary(data_dir, latest_regime, refresh_status=fund_flow_refresh, fund_flow_dir=fund_flow_dir),
         "fundFlowRefresh": fund_flow_refresh,
         "alerts": _build_alerts(flow, risk, latest_regime, sigma_history),
         "matchedSectors": _records(matched),

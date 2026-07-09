@@ -407,7 +407,8 @@ function renderDashboard(data) {
   renderHeatmaps(data.heatmaps);
   const refreshStatus = data.fundFlowRefresh || data.fundFlow?.refresh_status || null;
   const refreshText = refreshStatus?.message ? `；资金流：${refreshStatus.message}` : "";
-  document.getElementById("statusText").textContent = `数据源：${data.summary.data_dir}${refreshText}`;
+  const fundFlowDir = data.summary.fund_flow_data_dir ? `；资金流目录：${data.summary.fund_flow_data_dir}` : "";
+  document.getElementById("statusText").textContent = `数据源：${data.summary.data_dir}${fundFlowDir}${refreshText}`;
   scheduleFundFlowReload(refreshStatus);
 }
 
