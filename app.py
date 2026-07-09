@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import json
+import re
 import mimetypes
 import os
 import subprocess
 import sys
 import time
-from datetime import date, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import date, datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from html import unescape
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode
 from urllib.request import Request, urlopen
+from xml.etree import ElementTree as ET
 
 import numpy as np
 import pandas as pd
@@ -29,6 +34,9 @@ US_RANKING_MARKET = os.environ.get("US_RANKING_MARKET", "us")
 US_RANKING_BENCHMARK = os.environ.get("US_RANKING_BENCHMARK", "QQQ")
 
 _RANK_HEAT_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+_NEWS_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+NEWS_CACHE_SECONDS = int(os.environ.get("NEWS_CACHE_SECONDS", "600"))
+NEWS_FETCH_TIMEOUT = float(os.environ.get("NEWS_FETCH_TIMEOUT", "5"))
 
 US_RANK_SECTOR_LABELS = {
     "Information Technology": "科技",
@@ -44,6 +52,79 @@ US_RANK_SECTOR_LABELS = {
     "Real Estate": "房地产",
     "ETF": "ETF",
 }
+
+NEWS_GROUPS = [
+    {
+        "id": "policy",
+        "title": "政策性新闻",
+        "description": "优先看监管、出口管制、产业政策和国会动向，适合判断板块约束与政策催化。",
+        "sources": [
+            {
+                "name": "Federal Register / BIS",
+                "kind": "federal_register",
+                "source_url": "https://www.federalregister.gov/documents/search?conditions%5Bterm%5D=semiconductor+AI+export+controls",
+                "feed_url": "https://www.federalregister.gov/api/v1/documents.json?per_page=8&order=newest&conditions%5Bterm%5D=semiconductor%20AI%20export%20controls",
+                "note": "公开 API；重点关注 AI、半导体、出口管制相关文件。BIS 官网入口：https://www.bis.gov/。",
+            },
+            {
+                "name": "Politico Pro",
+                "source_url": "https://subscriber.politicopro.com/",
+                "note": "订阅源，不绕过登录；用于政策和游说动向跟踪。",
+            },
+            {
+                "name": "中国商务部",
+                "source_url": "https://www.mofcom.gov.cn/",
+                "note": "公开官网入口；重点关注出口管制、贸易政策和对外投资。",
+            },
+            {
+                "name": "工信部",
+                "source_url": "https://www.miit.gov.cn/",
+                "note": "公开官网入口；重点关注半导体、算力、数据中心和工业政策。",
+            },
+            {
+                "name": "网信办",
+                "source_url": "https://www.cac.gov.cn/",
+                "note": "公开官网入口；重点关注数据、算法、生成式 AI 和网络安全监管。",
+            },
+            {
+                "name": "发改委",
+                "source_url": "https://www.ndrc.gov.cn/",
+                "note": "公开官网入口；重点关注算力、电力、数据中心和产业规划。",
+            },
+            {
+                "name": "Punchbowl News",
+                "source_url": "https://punchbowl.news/",
+                "feed_url": "https://punchbowl.news/feed/",
+                "note": "公开 RSS；适合观察美国国会和政策议程。",
+            },
+        ],
+    },
+    {
+        "id": "rumor",
+        "title": "小道消息",
+        "description": "偏产业链、订阅媒体和政治人物发言的早期信号；需要和正式公告交叉验证。",
+        "sources": [
+            {"name": "The Information", "source_url": "https://www.theinformation.com/", "note": "订阅媒体，不绕过登录。"},
+            {"name": "SemiAnalysis", "source_url": "https://semianalysis.com/", "feed_url": "https://semianalysis.com/feed/", "note": "公开 RSS；适合 AI 算力、半导体和数据中心深度跟踪。"},
+            {"name": "DIGITIMES", "source_url": "https://www.digitimes.com/", "feed_url": "https://www.digitimes.com/rss/daily.xml", "note": "公开 RSS；适合台系供应链和半导体硬件消息。"},
+            {"name": "Politico Pro", "source_url": "https://subscriber.politicopro.com/", "note": "订阅源，不绕过登录。"},
+            {"name": "Axios", "source_url": "https://www.axios.com/", "feed_url": "https://www.axios.com/feeds/feed.rss", "note": "公开 RSS 若不可达则保留来源入口。"},
+            {"name": "FT", "source_url": "https://www.ft.com/", "feed_url": "https://www.ft.com/rss/home", "note": "公开 RSS 若不可达则保留来源入口；部分正文需订阅。"},
+            {"name": "Trump 发言", "source_url": "https://www.whitehouse.gov/briefing-room/speeches-remarks/", "feed_url": "https://www.whitehouse.gov/feed/", "note": "优先使用白宫公开发言/声明入口；社交平台内容需自行交叉验证。"},
+        ],
+    },
+    {
+        "id": "global",
+        "title": "外网消息",
+        "description": "主流英文财经与科技媒体，用来确认市场共识、公司事件和海外资金关注点。",
+        "sources": [
+            {"name": "Reuters", "source_url": "https://www.reuters.com/technology/", "note": "官网入口；若无稳定公开 RSS，则保留来源跳转。"},
+            {"name": "Bloomberg", "source_url": "https://www.bloomberg.com/technology", "feed_url": "https://feeds.bloomberg.com/technology/news.rss", "note": "公开 RSS 若当前网络不可达则保留来源入口。"},
+            {"name": "WSJ", "source_url": "https://www.wsj.com/tech", "feed_url": "https://feeds.a.dj.com/rss/WSJcomUSBusiness.xml", "note": "公开 RSS；部分正文需订阅。"},
+            {"name": "SemiAnalysis", "source_url": "https://semianalysis.com/", "feed_url": "https://semianalysis.com/feed/", "note": "公开 RSS；与小道消息板块复用，用于芯片和算力深度信号。"},
+        ],
+    },
+]
 
 MARKET_LABELS = {
     "US": "美国",
@@ -788,6 +869,192 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
     }
 
 
+def _clean_news_text(value, limit: int = 260) -> str:
+    text = unescape(str(value or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) > limit:
+        return text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _local_tag(tag: str) -> str:
+    return str(tag).rsplit("}", 1)[-1].lower()
+
+
+def _child_text(node: ET.Element, names: set[str]) -> str:
+    for child in list(node):
+        if _local_tag(child.tag) in names:
+            return child.text or ""
+    return ""
+
+
+def _child_link(node: ET.Element) -> str:
+    text_link = _child_text(node, {"link"})
+    if text_link:
+        return text_link.strip()
+    for child in list(node):
+        if _local_tag(child.tag) == "link":
+            href = child.attrib.get("href")
+            if href:
+                return href.strip()
+    return ""
+
+
+def _news_date(value) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = parsedate_to_datetime(raw)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc).isoformat()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return raw
+
+
+def _fetch_text(url: str) -> str:
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/rss+xml, application/atom+xml, application/json, text/xml, */*",
+            "User-Agent": "cn-us-sector-news-radar/1.0",
+        },
+    )
+    with urlopen(request, timeout=NEWS_FETCH_TIMEOUT) as response:
+        body = response.read(1_500_000)
+        charset = response.headers.get_content_charset() or "utf-8"
+    return body.decode(charset, errors="replace")
+
+
+def _parse_feed_items(text: str, limit: int = 6) -> list[dict]:
+    root = ET.fromstring(text)
+    nodes = root.findall(".//item")
+    if not nodes:
+        nodes = [node for node in root.iter() if _local_tag(node.tag) == "entry"]
+    items: list[dict] = []
+    for node in nodes[:limit]:
+        title = _clean_news_text(_child_text(node, {"title"}), 180)
+        link = _child_link(node)
+        summary = _clean_news_text(_child_text(node, {"description", "summary", "content", "encoded"}))
+        published = _news_date(_child_text(node, {"pubdate", "published", "updated", "date"}))
+        if not title and not link:
+            continue
+        items.append(
+            {
+                "title": title or link,
+                "url": link,
+                "summary": summary,
+                "published_at": published,
+            }
+        )
+    return items
+
+
+def _parse_federal_register_items(text: str, limit: int = 6) -> list[dict]:
+    payload = json.loads(text)
+    rows = payload.get("results") or []
+    items: list[dict] = []
+    for row in rows[:limit]:
+        items.append(
+            {
+                "title": _clean_news_text(row.get("title"), 180),
+                "url": row.get("html_url") or row.get("pdf_url") or "",
+                "summary": _clean_news_text(row.get("abstract") or row.get("type") or ""),
+                "published_at": row.get("publication_date") or "",
+            }
+        )
+    return [item for item in items if item["title"] or item["url"]]
+
+
+def _fetch_news_source(source: dict) -> dict:
+    result = {
+        "name": source["name"],
+        "source_url": source.get("source_url") or "",
+        "feed_url": source.get("feed_url") or "",
+        "note": source.get("note") or "",
+        "status": "source_only",
+        "items": [],
+    }
+    feed_url = source.get("feed_url")
+    if not feed_url:
+        return result
+    try:
+        text = _fetch_text(feed_url)
+        items = (
+            _parse_federal_register_items(text)
+            if source.get("kind") == "federal_register"
+            else _parse_feed_items(text)
+        )
+        result["items"] = items
+        result["status"] = "ok" if items else "empty"
+    except (HTTPError, URLError, TimeoutError, ET.ParseError, json.JSONDecodeError, OSError, UnicodeError) as exc:
+        result["status"] = "error"
+        result["error"] = _clean_news_text(str(exc), 160)
+    return result
+
+
+def _build_news_payload() -> dict:
+    now = time.time()
+    cached = _NEWS_CACHE.get("payload")
+    fetched_at = float(_NEWS_CACHE.get("fetched_at") or 0)
+    if isinstance(cached, dict) and now - fetched_at < NEWS_CACHE_SECONDS:
+        return cached
+
+    source_results: dict[tuple[int, int], dict] = {}
+    futures = {}
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for group_index, group in enumerate(NEWS_GROUPS):
+            for source_index, source in enumerate(group["sources"]):
+                key = (group_index, source_index)
+                if source.get("feed_url"):
+                    futures[executor.submit(_fetch_news_source, source)] = key
+                else:
+                    source_results[key] = _fetch_news_source(source)
+        for future in as_completed(futures):
+            key = futures[future]
+            try:
+                source_results[key] = future.result()
+            except Exception as exc:  # pragma: no cover - defensive per-source boundary.
+                group_index, source_index = key
+                source = NEWS_GROUPS[group_index]["sources"][source_index]
+                source_results[key] = {
+                    "name": source["name"],
+                    "source_url": source.get("source_url") or "",
+                    "feed_url": source.get("feed_url") or "",
+                    "note": source.get("note") or "",
+                    "status": "error",
+                    "error": _clean_news_text(str(exc), 160),
+                    "items": [],
+                }
+
+    groups: list[dict] = []
+    for group_index, group in enumerate(NEWS_GROUPS):
+        sources = [
+            source_results.get((group_index, source_index), _fetch_news_source(source))
+            for source_index, source in enumerate(group["sources"])
+        ]
+        groups.append(
+            {
+                "id": group["id"],
+                "title": group["title"],
+                "description": group["description"],
+                "sources": sources,
+                "item_count": sum(len(source.get("items") or []) for source in sources),
+            }
+        )
+
+    payload = {
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "method": "公开 RSS/API 自动抓取；订阅源、登录源或当前网络不可达的来源仅保留入口，不绕过付费墙。",
+        "groups": groups,
+    }
+    _NEWS_CACHE["payload"] = payload
+    _NEWS_CACHE["fetched_at"] = now
+    return payload
+
+
 def _us_ranking_url() -> str:
     params = {
         "window": str(US_RANKING_WINDOW),
@@ -1090,6 +1357,8 @@ def app(environ, start_response):
         return _file_response(start_response, WEB_DIR / "index.html")
     if method == "GET" and path in {"/ai-chain", "/ai-chain.html"}:
         return _file_response(start_response, WEB_DIR / "ai-chain.html")
+    if method == "GET" and path in {"/news", "/news.html"}:
+        return _file_response(start_response, WEB_DIR / "news.html")
     if method == "GET" and path == "/healthz":
         return _json_response(start_response, {"ok": True})
     if method == "GET" and path == "/api/dashboard":
@@ -1100,6 +1369,8 @@ def app(environ, start_response):
             return _json_response(start_response, {"error": str(exc)}, "500 Internal Server Error")
     if method == "GET" and path == "/api/us-rank-heat":
         return _json_response(start_response, _build_rank_heat_summary())
+    if method == "GET" and path == "/api/news":
+        return _json_response(start_response, _build_news_payload())
     if method == "POST" and path == "/api/refresh":
         try:
             payload = _refresh_from_body(environ)

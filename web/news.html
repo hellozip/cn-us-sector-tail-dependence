@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新闻雷达</title>
+  <link rel="stylesheet" href="/static/styles.css?v=20260709-news" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">政策 · 小道消息 · 外网确认</p>
+      <h1>新闻雷达</h1>
+      <p class="subtitle">把政策源、订阅媒体线索和主流外媒拆开看，先识别政策催化，再用外网消息确认市场共识。</p>
+    </div>
+    <nav class="header-actions" aria-label="页面导航">
+      <a class="header-link secondary" href="/">资金流向雷达</a>
+      <a class="header-link" href="/ai-chain">AI产业链</a>
+    </nav>
+  </header>
+
+  <main class="news-main">
+    <section class="news-toolbar" aria-label="新闻刷新">
+      <div>
+        <p class="eyebrow">推送状态</p>
+        <h2>政策性新闻置顶，其他消息分层确认</h2>
+        <p id="newsMethod">正在读取公开 RSS/API。订阅源和登录源只提供入口，不绕过付费墙。</p>
+      </div>
+      <button id="refreshNewsBtn" type="button">刷新新闻</button>
+    </section>
+
+    <section id="newsBoard" class="news-board" aria-label="新闻列表">
+      <div class="empty">正在加载新闻源...</div>
+    </section>
+  </main>
+
+  <footer>
+    新闻雷达只做信息源聚合和提示，不构成投资建议。小道消息必须和正式公告、公司披露、政策原文和市场价格行为交叉验证。
+  </footer>
+
+  <script src="/static/news.js?v=20260709-news"></script>
+</body>
+</html>
