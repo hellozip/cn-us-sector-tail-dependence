@@ -99,6 +99,11 @@ button:disabled {
   cursor: wait;
 }
 
+button.secondary-action {
+  background: #ffffff;
+  color: var(--blue);
+}
+
 main {
   padding: 22px clamp(18px, 4vw, 56px) 36px;
 }
@@ -191,7 +196,7 @@ input {
 
 .fund-flow-stats {
   display: grid;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
+  grid-template-columns: repeat(7, minmax(120px, 1fr));
   gap: 10px;
   padding: 14px 18px;
   border-bottom: 1px solid var(--line);
@@ -252,6 +257,14 @@ input {
   line-height: 1.25;
 }
 
+.flow-stat small {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .flow-positive {
   color: var(--red);
   font-weight: 700;
@@ -259,6 +272,16 @@ input {
 
 .flow-negative {
   color: #047857;
+  font-weight: 700;
+}
+
+.flow-warning {
+  color: var(--amber);
+  font-weight: 700;
+}
+
+.flow-pending {
+  color: var(--blue);
   font-weight: 700;
 }
 

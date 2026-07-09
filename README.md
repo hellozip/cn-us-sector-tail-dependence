@@ -169,7 +169,7 @@ python scripts/fetch_real_fund_flows.py
 - `eastmoney_sector_boards.csv`: 本次抓到的原始板块字段留档。
 - `us_etf_snapshots.csv`: 美国代理 ETF 的 StockAnalysis AUM、份额、价格和数据日期快照。
 
-`fund_flow_amount.csv` 和 `sector_total_size.csv` 会按 `date,id` 追加并去重：同一天重复抓取会覆盖同一日期的最新值，新交易日会保留历史记录。页面的排名变化不是按自然日“昨天”比较，而是按每个板块自己的上一个有效资金流交易日比较，适配周末、节假日和中美交易日不一致的情况。网页点击“刷新分析”时也会自动尝试运行该脚本。
+`fund_flow_amount.csv` 和 `sector_total_size.csv` 会按 `date,id` 追加并去重：同一天重复抓取会覆盖同一日期的最新值，新交易日会保留历史记录。页面的排名变化不是按自然日“昨天”比较，而是按每个板块自己的上一个有效资金流交易日比较，适配周末、节假日和中美交易日不一致的情况。网页点击“刷新分析”时也会自动尝试运行该脚本；首页读取 `/api/dashboard` 时还会判断资金流日期是否早于今天，若过期则启动后台资金流刷新，不阻塞页面打开。工具栏的“刷新资金流”按钮会调用独立接口，只更新板块资金流，不重新跑 GARCH/Copula 分析。
 
 美国侧公开来源调研后采用 StockAnalysis ETF 页面作为可自动接入的数据源。ETFDB 和 ETF.com 页面存在直接 fund flow 展示，但当前自动请求经常被 Cloudflare 阻断，不适合作为稳定抓取源；Yahoo Finance 图表/行情字段不提供可直接等同于 ETF 净申购/净赎回的免费标准字段；Nasdaq API 可取部分 ETF AUM 信息，但不提供净流入字段。StockAnalysis 页面可稳定取得 ETF AUM、Shares Outstanding、价格和数据日期，因此项目会先写入 `us_etf_snapshots.csv`，并在同一 ETF 存在上一个有效交易日快照后生成美国侧资金流估计：
 
@@ -193,6 +193,7 @@ http://127.0.0.1:8000
 看板接口：
 
 - `GET /api/dashboard`: 读取当前 `outputs/latest/`，如果没有本地输出则回退到 `reports/` 中最新快照。
+- `POST /api/fund-flow-refresh`: 只运行 `scripts/fetch_real_fund_flows.py`，按真实资金流来源更新 `fund_flow_amount.csv`、`sector_total_size.csv`、`fund_flow_sources.csv` 和美国 ETF 快照。
 - `POST /api/refresh`: 按页面上的起止日期和 tail alpha 重新抓取数据、估计 GARCH，并刷新 `outputs/latest/`。
 - `GET /report-assets/report.html`: 打开脚本生成的完整 HTML 报告。
 

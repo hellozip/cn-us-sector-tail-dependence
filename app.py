@@ -6,6 +6,7 @@ import mimetypes
 import os
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
@@ -16,6 +17,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, unquote, urlencode
 from urllib.request import Request, urlopen
 from xml.etree import ElementTree as ET
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -35,8 +37,18 @@ US_RANKING_BENCHMARK = os.environ.get("US_RANKING_BENCHMARK", "QQQ")
 
 _RANK_HEAT_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
 _NEWS_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+_FUND_FLOW_REFRESH_LOCK = threading.Lock()
+_FUND_FLOW_REFRESH_STATE: dict[str, object] = {
+    "running": False,
+    "last_attempt_ts": 0.0,
+    "last_attempt_at": None,
+    "last_result": None,
+}
 NEWS_CACHE_SECONDS = int(os.environ.get("NEWS_CACHE_SECONDS", "600"))
 NEWS_FETCH_TIMEOUT = float(os.environ.get("NEWS_FETCH_TIMEOUT", "5"))
+AUTO_FUND_FLOW_REFRESH = os.environ.get("AUTO_FUND_FLOW_REFRESH", "1").lower() not in {"0", "false", "no"}
+FUND_FLOW_AUTO_REFRESH_SECONDS = int(os.environ.get("FUND_FLOW_AUTO_REFRESH_SECONDS", "3600"))
+FUND_FLOW_REFRESH_TIMEOUT = int(os.environ.get("FUND_FLOW_REFRESH_TIMEOUT", "180"))
 
 US_RANK_SECTOR_LABELS = {
     "Information Technology": "科技",
@@ -777,7 +789,172 @@ def _iso_date(value) -> str | None:
     return pd.Timestamp(value).date().isoformat()
 
 
-def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit: int = 20) -> dict:
+def _fund_flow_today() -> date:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date()
+
+
+def _latest_fund_flow_date(data_dir: Path) -> date | None:
+    fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
+    if fund_flow.empty:
+        return None
+    observed = fund_flow.dropna(how="all")
+    if observed.empty:
+        return None
+    return pd.Timestamp(observed.index.max()).date()
+
+
+def _trim_process_text(value: str | None, limit: int = 2400) -> str:
+    text = value or ""
+    return text[-limit:] if len(text) > limit else text
+
+
+def _last_fund_flow_result() -> dict | None:
+    result = _FUND_FLOW_REFRESH_STATE.get("last_result")
+    return dict(result) if isinstance(result, dict) else None
+
+
+def _fund_flow_refresh_status(data_dir: Path) -> dict:
+    latest_date = _latest_fund_flow_date(data_dir)
+    today = _fund_flow_today()
+    age_days = None if latest_date is None else max(0, (today - latest_date).days)
+    last_result = _last_fund_flow_result()
+    last_attempt_at = _FUND_FLOW_REFRESH_STATE.get("last_attempt_at")
+    return {
+        "auto_enabled": AUTO_FUND_FLOW_REFRESH,
+        "latest_date": latest_date.isoformat() if latest_date else None,
+        "today": today.isoformat(),
+        "age_days": age_days,
+        "stale": latest_date is None or latest_date < today,
+        "running": bool(_FUND_FLOW_REFRESH_STATE.get("running")),
+        "last_attempt_at": last_attempt_at if isinstance(last_attempt_at, str) else None,
+        "last_result": last_result,
+        "message": "资金流数据等待刷新" if latest_date is None or latest_date < today else "资金流数据已是今日日期",
+    }
+
+
+def _execute_fund_flow_refresh(data_dir: Path) -> dict:
+    started = datetime.now(timezone.utc)
+    _FUND_FLOW_REFRESH_STATE["running"] = True
+    _FUND_FLOW_REFRESH_STATE["last_attempt_ts"] = time.time()
+    _FUND_FLOW_REFRESH_STATE["last_attempt_at"] = started.isoformat()
+    cmd = [
+        sys.executable,
+        str(ROOT / "scripts" / "fetch_real_fund_flows.py"),
+        "--output",
+        str(data_dir),
+    ]
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=FUND_FLOW_REFRESH_TIMEOUT,
+        )
+        result = {
+            "ok": completed.returncode == 0,
+            "returncode": completed.returncode,
+            "stdout": _trim_process_text(completed.stdout),
+            "stderr": _trim_process_text(completed.stderr),
+        }
+    except subprocess.TimeoutExpired as exc:
+        result = {
+            "ok": False,
+            "returncode": None,
+            "stdout": _trim_process_text(exc.stdout.decode("utf-8", errors="ignore") if isinstance(exc.stdout, bytes) else exc.stdout),
+            "stderr": _trim_process_text(exc.stderr.decode("utf-8", errors="ignore") if isinstance(exc.stderr, bytes) else exc.stderr),
+            "error": "fund flow refresh timed out",
+        }
+    except Exception as exc:  # pragma: no cover - defensive network/process boundary.
+        result = {
+            "ok": False,
+            "returncode": None,
+            "stdout": "",
+            "stderr": "",
+            "error": str(exc),
+        }
+    finished = datetime.now(timezone.utc)
+    result["started_at"] = started.isoformat()
+    result["finished_at"] = finished.isoformat()
+    _FUND_FLOW_REFRESH_STATE["last_result"] = result
+    _FUND_FLOW_REFRESH_STATE["running"] = False
+    return result
+
+
+def _request_fund_flow_refresh(data_dir: Path, *, force: bool = False, background: bool = False) -> dict:
+    status = _fund_flow_refresh_status(data_dir)
+    if data_dir != OUTPUT_DIR:
+        status.update(
+            {
+                "ok": True,
+                "refresh_started": False,
+                "message": "当前读取的是快照目录，自动刷新只写入 outputs/latest。",
+            }
+        )
+        return status
+    if not force and not AUTO_FUND_FLOW_REFRESH:
+        status.update({"ok": True, "refresh_started": False, "message": "自动资金流刷新已关闭。"})
+        return status
+    if not force and not status["stale"]:
+        status.update({"ok": True, "refresh_started": False, "message": "资金流数据已是今日日期。"})
+        return status
+    now_ts = time.time()
+    last_attempt_ts = float(_FUND_FLOW_REFRESH_STATE.get("last_attempt_ts") or 0.0)
+    if not force and now_ts - last_attempt_ts < FUND_FLOW_AUTO_REFRESH_SECONDS:
+        status.update(
+            {
+                "ok": True,
+                "refresh_started": False,
+                "message": "最近已尝试刷新资金流，本次沿用当前数据。",
+            }
+        )
+        return status
+    if not _FUND_FLOW_REFRESH_LOCK.acquire(blocking=False):
+        status.update({"ok": True, "refresh_started": False, "running": True, "message": "资金流正在刷新中。"})
+        return status
+
+    if background:
+        def worker() -> None:
+            try:
+                _execute_fund_flow_refresh(data_dir)
+            finally:
+                _FUND_FLOW_REFRESH_LOCK.release()
+
+        threading.Thread(target=worker, daemon=True).start()
+        status.update({"ok": True, "refresh_started": True, "running": True, "message": "资金流后台刷新已启动。"})
+        return status
+
+    try:
+        result = _execute_fund_flow_refresh(data_dir)
+    finally:
+        _FUND_FLOW_REFRESH_LOCK.release()
+    refreshed_status = _fund_flow_refresh_status(data_dir)
+    refreshed_status.update(
+        {
+            "ok": bool(result.get("ok")),
+            "refresh_started": True,
+            "message": (
+                "资金流抓取完成，但来源尚未返回今日数据。"
+                if result.get("ok") and refreshed_status.get("stale")
+                else "资金流刷新完成。"
+                if result.get("ok")
+                else "资金流刷新失败。"
+            ),
+            "last_result": result,
+        }
+    )
+    return refreshed_status
+
+
+def _build_fund_flow_summary(
+    data_dir: Path,
+    latest_regime: pd.DataFrame,
+    limit: int = 20,
+    refresh_status: dict | None = None,
+) -> dict:
     returns = _read_timeseries(data_dir / "returns.csv")
     fund_flow = _read_metric_timeseries(data_dir / "fund_flow_amount.csv", ["flow_amount", "net_flow", "net_flow_amount"])
     total_size = _read_metric_timeseries(data_dir / "sector_total_size.csv", ["total_size", "sector_total_size", "aum", "market_cap"])
@@ -790,6 +967,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
             "available": False,
             "method": "未配置真实资金流来源。请提供 fund_flow_amount.csv（真实净流入/净流出金额）、sector_total_size.csv（板块总规模/AUM/市值口径）和 fund_flow_sources.csv（来源说明）。当前不会用收益率×成交额替代真实资金流。",
             "rows": [],
+            "refresh_status": refresh_status,
         }
 
     as_of = None
@@ -800,7 +978,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
 
     current, previous = _latest_flow_rankings(fund_flow, total_size, turnover, returns, as_of)
     if current.empty:
-        return {"available": False, "method": "真实资金流或板块总规模暂无有效观测。", "rows": []}
+        return {"available": False, "method": "真实资金流或板块总规模暂无有效观测。", "rows": [], "refresh_status": refresh_status}
 
     lookup = _asset_lookup(latest_regime)
     previous_rank = dict(zip(previous["id"], previous["rank"])) if not previous.empty else {}
@@ -866,6 +1044,7 @@ def _build_fund_flow_summary(data_dir: Path, latest_regime: pd.DataFrame, limit:
         "largest_inflow": largest_inflow,
         "largest_outflow": largest_outflow,
         "rows": rows,
+        "refresh_status": refresh_status,
     }
 
 
@@ -1222,6 +1401,7 @@ def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
 
 def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
     data_dir = _active_data_dir()
+    fund_flow_refresh = _request_fund_flow_refresh(data_dir, background=True)
     alpha_key = _detect_alpha_token(data_dir, _alpha_token(alpha))
     latest_regime = _read_csv(data_dir / f"latest_regime_alpha_{alpha_key}.csv")
     flow = _read_csv(data_dir / f"flow_candidates_alpha_{alpha_key}.csv", limit=30, sort_by="score")
@@ -1286,7 +1466,8 @@ def _dashboard_payload(alpha: str | float | int | None = None) -> dict:
         "latestRegime": _records(latest_regime),
         "flowCandidates": _records(flow),
         "riskCandidates": _records(risk),
-        "fundFlow": _build_fund_flow_summary(data_dir, latest_regime),
+        "fundFlow": _build_fund_flow_summary(data_dir, latest_regime, refresh_status=fund_flow_refresh),
+        "fundFlowRefresh": fund_flow_refresh,
         "alerts": _build_alerts(flow, risk, latest_regime, sigma_history),
         "matchedSectors": _records(matched),
         "garchParams": _records(garch),
@@ -1371,6 +1552,14 @@ def app(environ, start_response):
         return _json_response(start_response, _build_rank_heat_summary())
     if method == "GET" and path == "/api/news":
         return _json_response(start_response, _build_news_payload())
+    if method == "POST" and path == "/api/fund-flow-refresh":
+        try:
+            payload = _request_fund_flow_refresh(OUTPUT_DIR, force=True, background=False)
+            payload["dashboard"] = _dashboard_payload()
+            status = "200 OK" if payload.get("ok") else "500 Internal Server Error"
+            return _json_response(start_response, payload, status)
+        except Exception as exc:  # pragma: no cover - defensive web boundary.
+            return _json_response(start_response, {"ok": False, "error": str(exc)}, "500 Internal Server Error")
     if method == "POST" and path == "/api/refresh":
         try:
             payload = _refresh_from_body(environ)

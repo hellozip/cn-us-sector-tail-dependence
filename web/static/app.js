@@ -24,6 +24,7 @@ const fmtMoney = (value) => {
 };
 
 let currentDashboard = null;
+let fundFlowPollTimer = null;
 
 const escapeHtml = (value) => String(value ?? "")
   .replaceAll("&", "&amp;")
@@ -170,13 +171,50 @@ function rankArrowClass(value) {
   return "rank-flat";
 }
 
+function fundFlowStatusText(status) {
+  if (!status) return "等待检测";
+  if (status.running || status.refresh_started) return "正在更新";
+  if (status.last_result && status.last_result.ok === false) return "上次失败";
+  if (status.stale) return "待更新";
+  return "今日已更新";
+}
+
+function fundFlowStatusClass(status) {
+  if (!status) return "";
+  if (status.last_result && status.last_result.ok === false) return "flow-warning";
+  if (status.running || status.refresh_started) return "flow-pending";
+  if (status.stale) return "flow-warning";
+  return "flow-positive";
+}
+
+function fundFlowStatusDetail(status) {
+  if (!status) return "";
+  const parts = [];
+  if (status.latest_date) parts.push(`最新 ${status.latest_date}`);
+  if (status.today) parts.push(`今日 ${status.today}`);
+  if (status.message) parts.push(status.message);
+  return parts.join(" · ");
+}
+
+function renderFundFlowStatusStat(status) {
+  const detail = fundFlowStatusDetail(status);
+  return `
+    <div class="flow-stat flow-status-stat">
+      <span>更新状态</span>
+      <strong class="${fundFlowStatusClass(status)}">${escapeHtml(fundFlowStatusText(status))}</strong>
+      ${detail ? `<small>${escapeHtml(detail)}</small>` : ""}
+    </div>
+  `;
+}
+
 function renderFundFlow(fundFlow) {
   const statsTarget = document.getElementById("fundFlowStats");
   const tableTarget = document.getElementById("fundFlowTable");
   const methodTarget = document.getElementById("fundFlowMethod");
+  const refreshStatus = fundFlow?.refresh_status || currentDashboard?.fundFlowRefresh || null;
   if (!fundFlow || !fundFlow.available) {
     methodTarget.textContent = fundFlow?.method || "未配置真实资金流来源。";
-    statsTarget.innerHTML = "";
+    statsTarget.innerHTML = renderFundFlowStatusStat(refreshStatus);
     tableTarget.innerHTML = '<div class="empty">未配置真实资金流金额、板块总规模和来源说明</div>';
     return;
   }
@@ -192,9 +230,10 @@ function renderFundFlow(fundFlow) {
     { label: "真实流出合计", value: fmtMoney(fundFlow.total_outflow_amount), className: "flow-negative" },
     { label: "最大流入", value: largestInflow, className: "flow-positive" },
     { label: "最大流出", value: largestOutflow, className: "flow-negative" },
+    { customHtml: renderFundFlowStatusStat(refreshStatus) },
   ];
   statsTarget.innerHTML = stats.map((stat) => (
-    `<div class="flow-stat"><span>${stat.label}</span><strong class="${stat.className || ""}">${escapeHtml(stat.value)}</strong></div>`
+    stat.customHtml || `<div class="flow-stat"><span>${stat.label}</span><strong class="${stat.className || ""}">${escapeHtml(stat.value)}</strong></div>`
   )).join("");
 
   const rows = fundFlow.rows || [];
@@ -342,6 +381,19 @@ function closeSignalDialog() {
   document.body.classList.remove("modal-open");
 }
 
+function scheduleFundFlowReload(status) {
+  if (fundFlowPollTimer) {
+    window.clearTimeout(fundFlowPollTimer);
+    fundFlowPollTimer = null;
+  }
+  if (!status || (!status.running && !status.refresh_started)) return;
+  fundFlowPollTimer = window.setTimeout(() => {
+    loadDashboard().catch((error) => {
+      document.getElementById("statusText").textContent = `资金流自动更新后读取失败：${error.message}`;
+    });
+  }, 8000);
+}
+
 function renderDashboard(data) {
   currentDashboard = data;
   renderFundFlow(data.fundFlow);
@@ -353,7 +405,10 @@ function renderDashboard(data) {
   renderTable("matchedTable", data.matchedSectors, ["left_sector", "left_id", "right_id", "lower_tail_dependence", "upper_tail_dependence", "middle_pearson", "middle_spearman"], 14);
   renderTable("garchTable", data.garchParams, ["id", "status", "alpha", "beta", "persistence", "observations"], 24);
   renderHeatmaps(data.heatmaps);
-  document.getElementById("statusText").textContent = `数据源：${data.summary.data_dir}`;
+  const refreshStatus = data.fundFlowRefresh || data.fundFlow?.refresh_status || null;
+  const refreshText = refreshStatus?.message ? `；资金流：${refreshStatus.message}` : "";
+  document.getElementById("statusText").textContent = `数据源：${data.summary.data_dir}${refreshText}`;
+  scheduleFundFlowReload(refreshStatus);
 }
 
 async function loadDashboard() {
@@ -391,6 +446,31 @@ async function refreshAnalysis() {
   }
 }
 
+async function refreshFundFlow() {
+  const button = document.getElementById("refreshFundFlowBtn");
+  const status = document.getElementById("statusText");
+  button.disabled = true;
+  status.textContent = "正在刷新板块资金流...";
+  try {
+    const response = await fetch("/api/fund-flow-refresh", { method: "POST" });
+    const result = await response.json();
+    if (!response.ok || result.ok === false) {
+      const detail = result.error || result.last_result?.stderr || result.last_result?.error || "fund flow refresh failed";
+      throw new Error(detail);
+    }
+    if (result.dashboard) {
+      renderDashboard(result.dashboard);
+    } else {
+      await loadDashboard();
+    }
+    status.textContent = result.message || "资金流刷新完成";
+  } catch (error) {
+    status.textContent = `资金流刷新失败：${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
+}
+
 function initDates() {
   const end = new Date();
   const iso = end.toISOString().slice(0, 10);
@@ -412,6 +492,7 @@ function bindSignalActions() {
 document.addEventListener("DOMContentLoaded", () => {
   initDates();
   document.getElementById("refreshBtn").addEventListener("click", refreshAnalysis);
+  document.getElementById("refreshFundFlowBtn").addEventListener("click", refreshFundFlow);
   bindSignalActions();
   document.getElementById("closeSignalDialog").addEventListener("click", closeSignalDialog);
   document.getElementById("signalDialog").addEventListener("click", (event) => {
