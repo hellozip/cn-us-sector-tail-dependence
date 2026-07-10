@@ -4,7 +4,7 @@ const qqqSourceNote =
   "股票筛选口径：严格并集 = Nasdaq-100/QQQ 中的产业链相关股票 ∪ 你的基本面资料库中已覆盖的产业链相关股票。Nasdaq 成分数据时间为 Jul 6, 2026 11:24 AM；QQQ 实际持仓会随基金披露变化。";
 
 const cnSourceNote =
-  "A股筛选口径：沿用同一套 AI 产业链节点，每个节点维护 5 只代表性 A 股，仅用于产业链观察和横向比较，不构成买卖建议。";
+  "A股筛选口径：沿用同一套 AI 产业链节点，每个节点维护 5 只代表性 A 股。股票按均线重心的超额 ATR 强度统一排名，节点按内部股票平均名次排序；排名用于产业链强弱观察，不构成买卖建议。";
 
 const stockCatalog = {
   NVDA: {
@@ -720,7 +720,9 @@ const escapeHtml = (value) => String(value ?? "")
 const nodeMap = new Map();
 const chainHeatByKey = new Map();
 let chainRankHeat = null;
+let cnChainRankHeat = null;
 let chainRankLoading = true;
+let cnChainRankLoading = true;
 let chainHeatList = [];
 let currentMarket = "us";
 
@@ -766,10 +768,20 @@ function fmtChainHeat(value) {
   return Number(value).toFixed(1);
 }
 
+function rankPayloadForMarket(market = currentMarket) {
+  return market === "cn" ? cnChainRankHeat : chainRankHeat;
+}
+
+function rankLoadingForMarket(market = currentMarket) {
+  return market === "cn" ? cnChainRankLoading : chainRankLoading;
+}
+
 function rankInfoForTicker(ticker) {
-  if (currentMarket !== "us") return null;
-  if (!chainRankHeat?.rankByTicker) return null;
-  return chainRankHeat.rankByTicker[String(ticker || "").trim().toUpperCase()] || null;
+  const payload = rankPayloadForMarket();
+  if (!payload?.rankByTicker) return null;
+  const normalized = String(ticker || "").trim().toUpperCase();
+  const code = normalized.split(".")[0];
+  return payload.rankByTicker[normalized] || payload.rankByTicker[code] || null;
 }
 
 function computeNodeHeat(layer, item, originalIndex) {
@@ -813,7 +825,7 @@ function computeNodeHeat(layer, item, originalIndex) {
 function buildChainHeat() {
   chainHeatByKey.clear();
   chainHeatList = [];
-  if (currentMarket !== "us" || !chainRankHeat?.available) return;
+  if (!rankPayloadForMarket()?.available) return;
   chainLayers.forEach((layer) => {
     layer.items.forEach((item, originalIndex) => {
       const heat = computeNodeHeat(layer, item, originalIndex);
@@ -857,27 +869,93 @@ function orderedLayerItems(layer) {
 }
 
 function renderNodeHeatLine(key) {
-  if (currentMarket === "cn") {
-    const heat = chainHeatByKey.get(key);
-    return `<span class="ai-node-heatline cn">A股代表股：${escapeHtml(heat?.totalCount ?? 5)}只</span>`;
+  const isCn = currentMarket === "cn";
+  const payload = rankPayloadForMarket();
+  if (rankLoadingForMarket()) {
+    return `<span class="ai-node-heatline ${isCn ? "cn" : ""}">${isCn ? "均线重心" : "排名热度"}：读取中</span>`;
   }
-  if (chainRankLoading) {
-    return `<span class="ai-node-heatline">排名热度：读取中</span>`;
-  }
-  if (!chainRankHeat?.available) {
-    return `<span class="ai-node-heatline muted">排名热度：暂无外部数据</span>`;
+  if (!payload?.available) {
+    return `<span class="ai-node-heatline muted">${isCn ? "均线重心" : "排名热度"}：暂无数据</span>`;
   }
   const heat = chainHeatByKey.get(key);
   if (!heat?.available) {
     return `<span class="ai-node-heatline muted">排名源覆盖：0/${escapeHtml(heat?.totalCount ?? 0)}</span>`;
   }
   const leaderText = heat.leaders
-    .map((stock) => `${stock.ticker} #${stock.rankInfo.rank}`)
+    .map((stock) => `${isCn ? stock.cn : stock.ticker} #${stock.rankInfo.rank}`)
     .join(" / ");
   return `
-    <span class="ai-node-heatline ${heat.heatRank <= 5 ? "hot" : ""}">热度 #${heat.heatRank} · 平均排名 ${fmtChainHeat(heat.heatScore)} · 覆盖 ${heat.rankedCount}/${heat.totalCount}</span>
+    <span class="ai-node-heatline ${isCn ? "cn" : ""} ${heat.heatRank <= 5 ? "hot" : ""}">热度 #${heat.heatRank} · 平均排名 ${fmtChainHeat(heat.heatScore)} · 覆盖 ${heat.rankedCount}/${heat.totalCount}</span>
     <span class="ai-node-rankline">${escapeHtml(leaderText)}</span>
   `;
+}
+
+function fmtRankMetric(value, digits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "--";
+  return Number(value).toFixed(digits);
+}
+
+function fmtSignedRankMetric(value, digits = 2) {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) return "--";
+  const numeric = Number(value);
+  return `${numeric > 0 ? "+" : ""}${numeric.toFixed(digits)}`;
+}
+
+function rankMoveMarkup(row) {
+  if (row.rank_change === null || row.rank_change === undefined) {
+    return '<span class="rank-move new">新</span>';
+  }
+  const move = Number(row.rank_change);
+  if (!Number.isFinite(move)) return '<span class="rank-move new">新</span>';
+  if (move > 0) return `<span class="rank-move up">↑ ${move}</span>`;
+  if (move < 0) return `<span class="rank-move down">↓ ${Math.abs(move)}</span>`;
+  return '<span class="rank-move flat">→</span>';
+}
+
+function renderCnStockRanking() {
+  const panel = document.getElementById("chainStockRankPanel");
+  const body = document.getElementById("chainStockRankBody");
+  const note = document.getElementById("chainStockRankNote");
+  const count = document.getElementById("chainStockRankCount");
+  if (!panel || !body || !note || !count) return;
+  panel.hidden = currentMarket !== "cn";
+  if (panel.hidden) return;
+  if (cnChainRankLoading) {
+    note.textContent = "正在读取产业链股票池的前复权日线并生成统一排名。";
+    count.textContent = "计算中";
+    body.innerHTML = '<tr><td colspan="8" class="rank-table-empty">正在生成A股全股票排名...</td></tr>';
+    return;
+  }
+  if (!cnChainRankHeat?.available) {
+    note.textContent = cnChainRankHeat?.error || "A股均线重心排名暂时不可用。";
+    count.textContent = "0 / 0";
+    body.innerHTML = '<tr><td colspan="8" class="rank-table-empty">暂无可用排名数据。</td></tr>';
+    return;
+  }
+  const rows = [...(cnChainRankHeat.stocks || [])].sort((left, right) => Number(left.rank) - Number(right.rank));
+  note.textContent = `数据日 ${cnChainRankHeat.as_of_date || "--"}；均线重心为最近 ${cnChainRankHeat.window || 10} 个 MA${cnChainRankHeat.window || 10} 的平均值，超额强度以${cnChainRankHeat.benchmark_name || "中证500"}为基准。`;
+  count.textContent = `${rows.length} / ${cnChainRankHeat.universe_count || rows.length}`;
+  body.innerHTML = rows.map((row) => {
+    const stock = cnStockCatalog[row.ticker] || {};
+    const stale = Number(row.stale_sessions || 0) > 0;
+    return `
+      <tr>
+        <td><strong class="stock-rank-number ${Number(row.rank) <= 10 ? "top" : ""}">#${escapeHtml(row.rank)}</strong></td>
+        <td>
+          <div class="stock-rank-name">
+            <strong>${escapeHtml(stock.cn || row.code || row.ticker)}</strong>
+            <span>${escapeHtml(row.ticker)}</span>
+          </div>
+        </td>
+        <td>${fmtRankMetric(row.close)}</td>
+        <td>${fmtRankMetric(row.ma_center)}</td>
+        <td class="${Number(row.price_vs_center_pct) >= 0 ? "rank-positive" : "rank-negative"}">${fmtSignedRankMetric(row.price_vs_center_pct)}%</td>
+        <td class="${Number(row.excess_atr_vs_benchmark) >= 0 ? "rank-positive" : "rank-negative"}">${fmtSignedRankMetric(row.excess_atr_vs_benchmark, 3)}</td>
+        <td>${rankMoveMarkup(row)}</td>
+        <td><span class="rank-date ${stale ? "stale" : ""}">${escapeHtml(row.date || "--")}${stale ? ` · 滞后${escapeHtml(row.stale_sessions)}日` : ""}</span></td>
+      </tr>
+    `;
+  }).join("");
 }
 
 function renderChainRankSummary() {
@@ -887,47 +965,36 @@ function renderChainRankSummary() {
   const eyebrow = document.getElementById("chainRankEyebrow");
   const title = document.getElementById("chainRankTitle");
   if (!target || !method || !source) return;
-  if (currentMarket === "cn") {
-    if (eyebrow) eyebrow.textContent = "A股代表池";
-    if (title) title.textContent = "同一产业链节点下的A股代表股票";
-    method.textContent = "A股模式沿用美股图谱相同的上游基础层、中游技术/平台层、下游应用层划分；每个节点选取5只代表性A股，按人工维护的代表性顺序展示，不使用美股排名源排序。";
-    source.hidden = true;
-    const nodes = chainLayers.flatMap((layer) => layer.items.map((item) => {
-      const [name] = item;
-      const key = chainNodeKey(layer.id, name);
-      const stocks = resolveNodeStocks(item, "cn");
-      return { key, layerTitle: layer.title, name, stocks };
-    }));
-    target.innerHTML = nodes.map((node) => `
-      <button class="chain-rank-chip cn" type="button" data-node="${escapeHtml(node.key)}">
-        <span>${node.stocks.length}</span>
-        <strong>${escapeHtml(node.name)}</strong>
-        <small>${escapeHtml(node.layerTitle)} · ${escapeHtml(stockHint(node.stocks.map((stock) => stock.ticker)))}</small>
-      </button>
-    `).join("");
-    return;
-  }
-  if (eyebrow) eyebrow.textContent = "排名热度";
+  renderCnStockRanking();
+  const isCn = currentMarket === "cn";
+  const payload = rankPayloadForMarket();
+  const loading = rankLoadingForMarket();
+  if (eyebrow) eyebrow.textContent = isCn ? "A股均线重心" : "排名热度";
   if (title) title.textContent = "按对应股票平均排名重排产业链节点";
-  if (chainRankLoading) {
-    method.textContent = "正在读取美股排名源。热度 = 节点内已匹配股票 rank 之和 / 已匹配股票数量，数值越低代表热度越高。";
+  source.textContent = isCn ? "查看行情来源" : "查看排名来源";
+  if (loading) {
+    method.textContent = isCn
+      ? "正在生成A股产业链股票池的均线重心排名。节点热度 = 节点内股票名次之和 / 股票数量，数值越低代表整体越靠前。"
+      : "正在读取美股排名源。热度 = 节点内已匹配股票 rank 之和 / 已匹配股票数量，数值越低代表热度越高。";
     source.hidden = true;
     target.innerHTML = '<div class="empty">正在生成产业链节点热度排序...</div>';
     return;
   }
-  if (!chainRankHeat?.available) {
-    method.textContent = chainRankHeat?.error || "外部美股排名源暂时不可用，产业链节点保持原始顺序。";
+  if (!payload?.available) {
+    method.textContent = payload?.error || `${isCn ? "A股均线重心" : "外部美股排名"}暂时不可用，产业链节点保持原始顺序。`;
     source.hidden = true;
     target.innerHTML = '<div class="empty">暂无可用排名热度，已保留原产业链结构。</div>';
     return;
   }
-  method.textContent = `数据日：${chainRankHeat.as_of_date || "暂无"}；基准：${chainRankHeat.benchmark || "QQQ"}；排名样本：${chainRankHeat.stock_count || 0} 只。节点热度按已匹配股票平均 rank 升序排列，未被排名源覆盖的股票不纳入分母。`;
-  source.href = chainRankHeat.source_url || "#";
-  source.hidden = !chainRankHeat.source_url;
+  method.textContent = isCn
+    ? `数据日：${payload.as_of_date || "暂无"}；基准：${payload.benchmark_name || payload.benchmark || "中证500"}；覆盖：${payload.stock_count || 0}/${payload.universe_count || 0} 只。节点按内部股票平均名次升序排列；${payload.refreshing ? "后台正在刷新最新已完成交易日数据。" : "当前数据已载入。"}`
+    : `数据日：${payload.as_of_date || "暂无"}；基准：${payload.benchmark || "QQQ"}；排名样本：${payload.stock_count || 0} 只。节点热度按已匹配股票平均 rank 升序排列，未被排名源覆盖的股票不纳入分母。`;
+  source.href = payload.source_url || "#";
+  source.hidden = !payload.source_url;
   const hotNodes = chainHeatList.slice(0, 10);
   target.innerHTML = hotNodes.length
     ? hotNodes.map((heat) => `
-      <button class="chain-rank-chip" type="button" data-node="${escapeHtml(heat.key)}">
+      <button class="chain-rank-chip ${isCn ? "cn" : ""}" type="button" data-node="${escapeHtml(heat.key)}">
         <span>#${heat.heatRank}</span>
         <strong>${escapeHtml(heat.name)}</strong>
         <small>${escapeHtml(heat.layerTitle)} · 平均排名 ${fmtChainHeat(heat.heatScore)} · 覆盖 ${heat.rankedCount}/${heat.totalCount}</small>
@@ -936,22 +1003,30 @@ function renderChainRankSummary() {
     : '<div class="empty">排名源暂未覆盖产业链节点中的股票。</div>';
 }
 
-async function loadChainRankHeat() {
+async function loadChainRankHeat(market = currentMarket) {
+  const isCn = market === "cn";
   try {
-    const response = await fetch("/api/us-rank-heat");
+    const response = await fetch(isCn ? "/api/cn-ai-ma-rank" : "/api/us-rank-heat");
     if (!response.ok) throw new Error(`rank heat ${response.status}`);
-    chainRankHeat = await response.json();
+    const payload = await response.json();
+    if (isCn) cnChainRankHeat = payload;
+    else chainRankHeat = payload;
   } catch (error) {
-    chainRankHeat = {
+    const unavailable = {
       available: false,
-      error: `外部美股排名源读取失败：${error.message}`,
+      error: `${isCn ? "A股均线重心排名" : "外部美股排名源"}读取失败：${error.message}`,
     };
+    if (isCn) cnChainRankHeat = unavailable;
+    else chainRankHeat = unavailable;
   } finally {
-    chainRankLoading = false;
-    buildChainHeat();
-    indexNodes();
-    renderChain();
-    renderChainRankSummary();
+    if (isCn) cnChainRankLoading = false;
+    else chainRankLoading = false;
+    if (currentMarket === market) {
+      buildChainHeat();
+      indexNodes();
+      renderChain();
+      renderChainRankSummary();
+    }
   }
 }
 
@@ -972,13 +1047,21 @@ function stockBadges(stock) {
   ].filter(Boolean);
 }
 
+function stocksOrderedByRank(stocks) {
+  return [...stocks].sort((left, right) => {
+    const leftRank = Number(rankInfoForTicker(left.ticker)?.rank ?? Number.POSITIVE_INFINITY);
+    const rightRank = Number(rankInfoForTicker(right.ticker)?.rank ?? Number.POSITIVE_INFINITY);
+    return leftRank - rightRank || left.ticker.localeCompare(right.ticker);
+  });
+}
+
 function renderChain() {
   const board = document.getElementById("aiChainBoard");
   const html = chainLayers.map((layer) => {
     const items = orderedLayerItems(layer).map((item) => {
       const [name, visual, summary] = item;
       const key = chainNodeKey(layer.id, name);
-      const stocks = resolveNodeStocks(item);
+      const stocks = stocksOrderedByRank(resolveNodeStocks(item));
       const heat = chainHeatByKey.get(key);
       const stockLineLabel = currentMarket === "cn" ? "A股代表股" : "并集股票";
       return `
@@ -1019,7 +1102,7 @@ function indexNodes() {
         summary,
         watch,
         related,
-        stocks: resolveNodeStocks(item),
+        stocks: stocksOrderedByRank(resolveNodeStocks(item)),
         heat: chainHeatByKey.get(key) || null,
       });
     });
@@ -1031,13 +1114,11 @@ function renderStockLinks(stocks) {
     return `<p class="stock-source-note">暂无符合并集口径的产业链股票。</p>`;
   }
   const rankedStocks = stocks.map((stock) => ({ ...stock, rankInfo: rankInfoForTicker(stock.ticker) }));
-  if (currentMarket === "us") {
-    rankedStocks.sort((left, right) => {
-      const leftRank = Number(left.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
-      const rightRank = Number(right.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
-      return leftRank - rightRank || left.ticker.localeCompare(right.ticker);
-    });
-  }
+  rankedStocks.sort((left, right) => {
+    const leftRank = Number(left.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
+    const rightRank = Number(right.rankInfo?.rank ?? Number.POSITIVE_INFINITY);
+    return leftRank - rightRank || left.ticker.localeCompare(right.ticker);
+  });
   return `
     <div class="stock-chip-list">
       ${rankedStocks.map((stock) => `
@@ -1049,11 +1130,11 @@ function renderStockLinks(stocks) {
             <div class="stock-source-badges">
               ${stockBadges(stock).map((badge) => `<em>${escapeHtml(badge)}</em>`).join("")}
               ${
-                currentMarket === "us"
-                  ? stock.rankInfo
-                    ? `<em class="rank-source-badge">排名 #${escapeHtml(stock.rankInfo.rank)} · ${escapeHtml(stock.rankInfo.stock_type || stock.rankInfo.sector || "")}</em>`
-                    : `<em class="rank-source-badge muted">排名源未覆盖</em>`
-                  : ""
+                stock.rankInfo
+                  ? currentMarket === "cn"
+                    ? `<em class="rank-source-badge">全池 #${escapeHtml(stock.rankInfo.rank)} · 超额ATR ${fmtSignedRankMetric(stock.rankInfo.excess_atr_vs_benchmark, 3)} · 距重心 ${fmtSignedRankMetric(stock.rankInfo.price_vs_center_pct)}%</em>`
+                    : `<em class="rank-source-badge">排名 #${escapeHtml(stock.rankInfo.rank)} · ${escapeHtml(stock.rankInfo.stock_type || stock.rankInfo.sector || "")}</em>`
+                  : `<em class="rank-source-badge muted">排名源未覆盖</em>`
               }
             </div>
           </div>
@@ -1073,32 +1154,22 @@ function renderStockLinks(stocks) {
 }
 
 function renderNodeHeatDetails(node) {
-  if (currentMarket === "cn") {
-    const leaders = node.stocks
-      .slice(0, 5)
-      .map((stock) => `<span>${escapeHtml(stock.ticker)} ${escapeHtml(stock.cn)}</span>`)
-      .join("");
+  const isCn = currentMarket === "cn";
+  const payload = rankPayloadForMarket();
+  const sectionTitle = isCn ? "均线重心热度" : "排名热度";
+  if (rankLoadingForMarket()) {
     return `
       <div class="chain-dialog-section">
-        <h3>A股代表池</h3>
-        <p>该节点沿用同一产业链划分，选取5只A股代表公司，用于观察国内产业链映射和横向对比；排序为人工维护的代表性顺序，不是买卖建议。</p>
-        <div class="node-rank-leaders">${leaders}</div>
+        <h3>${sectionTitle}</h3>
+        <p>正在读取${isCn ? "A股前复权日线" : "美股排名源"}，稍后会按节点内股票平均排名更新热度。</p>
       </div>
     `;
   }
-  if (chainRankLoading) {
+  if (!payload?.available) {
     return `
       <div class="chain-dialog-section">
-        <h3>排名热度</h3>
-        <p>正在读取美股排名源，稍后会按节点内股票平均 rank 更新热度。</p>
-      </div>
-    `;
-  }
-  if (!chainRankHeat?.available) {
-    return `
-      <div class="chain-dialog-section">
-        <h3>排名热度</h3>
-        <p>${escapeHtml(chainRankHeat?.error || "外部美股排名源暂时不可用。")}</p>
+        <h3>${sectionTitle}</h3>
+        <p>${escapeHtml(payload?.error || `${sectionTitle}暂时不可用。`)}</p>
       </div>
     `;
   }
@@ -1106,19 +1177,19 @@ function renderNodeHeatDetails(node) {
   if (!heat?.available) {
     return `
       <div class="chain-dialog-section">
-        <h3>排名热度</h3>
-        <p>该节点的并集股票暂未被当前美股排名源覆盖，因此不参与热度排序。</p>
+        <h3>${sectionTitle}</h3>
+        <p>该节点股票暂未被当前排名数据覆盖，因此不参与热度排序。</p>
       </div>
     `;
   }
   const leaders = heat.rankedStocks
     .slice(0, 8)
-    .map((stock) => `<span>${escapeHtml(stock.ticker)} #${escapeHtml(stock.rankInfo.rank)}</span>`)
+    .map((stock) => `<span>${escapeHtml(isCn ? stock.cn : stock.ticker)} #${escapeHtml(stock.rankInfo.rank)}</span>`)
     .join("");
   return `
     <div class="chain-dialog-section">
-      <h3>排名热度</h3>
-      <p>产业链热度 #${heat.heatRank}；平均排名 ${fmtChainHeat(heat.heatScore)}；排名源覆盖 ${heat.rankedCount}/${heat.totalCount} 只节点股票。平均排名越低，说明该节点中被覆盖股票整体越靠前。</p>
+      <h3>${sectionTitle}</h3>
+      <p>产业链热度 #${heat.heatRank}；平均排名 ${fmtChainHeat(heat.heatScore)}；排名覆盖 ${heat.rankedCount}/${heat.totalCount} 只节点股票。平均排名越低，说明该节点股票整体越靠前。</p>
       <div class="node-rank-leaders">${leaders}</div>
     </div>
   `;
@@ -1129,7 +1200,7 @@ function openChainDialog(key) {
   if (!node) return;
   const stockSectionTitle = currentMarket === "cn" ? "A股代表股票" : "并集中的相关股票";
   const usageText = currentMarket === "cn"
-    ? "先看节点对应的A股代表公司，再通过官网按钮查看公司信息；A股暂未接入本项目自研基本面映射时，自研网站按钮会置灰。后续可以把这些公司继续接入资金流、相关性和波动异常指标，用于观察国内AI产业链扩散方向。"
+    ? "节点内A股已按全产业链股票池的均线重心名次排列。先看平均排名判断产业链环节热度，再结合个股超额ATR强度和距重心幅度观察扩散方向；距重心过高时也要留意短线回调风险。A股暂未接入本项目自研基本面映射时，自研网站按钮会置灰。"
     : "先看节点对应的并集股票，再根据按钮进入自研基本面页或公司官网；没有自研映射的股票，自研网站按钮会置灰。随后把这些公司与资金流排名、上尾/中部/下尾相关性和波动异常一起看。如果同一产业链节点的多只股票同时走强，说明资金可能在沿该链条扩散；如果强度偏离过大，也要同时留意回调风险。";
   document.getElementById("chainDialogEyebrow").textContent = node.layer.title;
   document.getElementById("chainDialogTitle").textContent = node.name;
@@ -1172,21 +1243,19 @@ function updateMarketButtons() {
 function setMarket(market) {
   currentMarket = market === "cn" ? "cn" : "us";
   updateMarketButtons();
-  if (currentMarket === "us" && !chainRankHeat) {
-    chainRankLoading = true;
-  } else {
-    chainRankLoading = false;
-  }
+  if (currentMarket === "cn") cnChainRankLoading = !cnChainRankHeat;
+  else chainRankLoading = !chainRankHeat;
   buildChainHeat();
   indexNodes();
   renderChain();
   renderChainRankSummary();
-  if (currentMarket === "us" && !chainRankHeat) {
-    loadChainRankHeat();
+  if (!rankPayloadForMarket()) {
+    loadChainRankHeat(currentMarket);
   }
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  loadChainRankHeat("cn");
   setMarket("us");
   document.getElementById("aiChainBoard").addEventListener("click", (event) => {
     const button = event.target.closest("[data-node]");

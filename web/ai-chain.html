@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI产业链图谱</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260709-ai-chain-cn" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260710-cn-ma-rank" />
 </head>
 <body>
   <header class="app-header">
@@ -47,6 +47,32 @@
         <a id="chainRankSource" class="chain-rank-source" href="#" target="_blank" rel="noopener noreferrer" hidden>查看排名来源</a>
       </div>
       <div id="chainRankSummary" class="chain-rank-summary"></div>
+      <div id="chainStockRankPanel" class="chain-stock-rank-panel" hidden>
+        <div class="chain-stock-rank-heading">
+          <div>
+            <h3>A股全股票均线重心排名</h3>
+            <p id="chainStockRankNote">按超额ATR强度从高到低排列产业链股票池。</p>
+          </div>
+          <span id="chainStockRankCount" class="chain-stock-rank-count">0 / 0</span>
+        </div>
+        <div class="chain-stock-rank-table-wrap">
+          <table class="chain-stock-rank-table">
+            <thead>
+              <tr>
+                <th>排名</th>
+                <th>股票</th>
+                <th>收盘</th>
+                <th>均线重心</th>
+                <th>距重心</th>
+                <th>超额ATR强度</th>
+                <th>较上个交易日</th>
+                <th>行情日期</th>
+              </tr>
+            </thead>
+            <tbody id="chainStockRankBody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <section id="aiChainBoard" class="ai-chain-board" aria-label="可点击AI产业链节点"></section>
@@ -67,6 +93,6 @@
     </section>
   </div>
 
-  <script src="/static/ai-chain.js?v=20260709-ai-chain-cn"></script>
+  <script src="/static/ai-chain.js?v=20260710-cn-ma-rank"></script>
 </body>
 </html>

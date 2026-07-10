@@ -34,8 +34,24 @@ US_RANKING_TIMEOUT = float(os.environ.get("US_RANKING_TIMEOUT", "8"))
 US_RANKING_CACHE_SECONDS = int(os.environ.get("US_RANKING_CACHE_SECONDS", "300"))
 US_RANKING_MARKET = os.environ.get("US_RANKING_MARKET", "us")
 US_RANKING_BENCHMARK = os.environ.get("US_RANKING_BENCHMARK", "QQQ")
+CN_AI_RANKING_SOURCE_URL = os.environ.get(
+    "CN_AI_RANKING_SOURCE_URL",
+    "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get",
+)
+CN_AI_RANKING_BENCHMARK = os.environ.get("CN_AI_RANKING_BENCHMARK", "000905.SH")
+CN_AI_RANKING_WINDOW = int(os.environ.get("CN_AI_RANKING_WINDOW", "10"))
+CN_AI_RANKING_ATR_WINDOW = int(os.environ.get("CN_AI_RANKING_ATR_WINDOW", "20"))
+CN_AI_RANKING_TIMEOUT = float(os.environ.get("CN_AI_RANKING_TIMEOUT", "8"))
+CN_AI_RANKING_CACHE_SECONDS = int(os.environ.get("CN_AI_RANKING_CACHE_SECONDS", "900"))
+CN_AI_RANKING_WORKERS = int(os.environ.get("CN_AI_RANKING_WORKERS", "16"))
+CN_AI_STOCKS_FILE = ROOT / "config" / "ai_chain_cn_stocks.json"
+CN_AI_RANKING_SNAPSHOT = ROOT / "data" / "cn_ai_ma_rank_snapshot.json"
 
 _RANK_HEAT_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+_CN_AI_RANK_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
+_CN_AI_RANK_LOCK = threading.Lock()
+_CN_AI_RANK_REFRESH_LOCK = threading.Lock()
+_CN_AI_RANK_REFRESH_STATE: dict[str, object] = {"running": False, "last_error": None}
 _NEWS_CACHE: dict[str, object] = {"fetched_at": 0.0, "payload": None}
 _FUND_FLOW_REFRESH_LOCK = threading.Lock()
 _FUND_FLOW_REFRESH_STATE: dict[str, object] = {
@@ -1384,6 +1400,363 @@ def _build_rank_heat_summary() -> dict:
     return result
 
 
+def _load_cn_ai_tickers() -> list[str]:
+    raw = json.loads(CN_AI_STOCKS_FILE.read_text(encoding="utf-8"))
+    if not isinstance(raw, list):
+        raise ValueError("A股产业链股票池配置必须是数组。")
+    tickers: list[str] = []
+    for value in raw:
+        ticker = str(value or "").strip().upper()
+        if not re.fullmatch(r"\d{6}\.(?:SH|SZ)", ticker):
+            raise ValueError(f"无效的A股代码：{ticker or value}")
+        if ticker not in tickers:
+            tickers.append(ticker)
+    if not tickers:
+        raise ValueError("A股产业链股票池为空。")
+    return tickers
+
+
+def _cn_quote_symbol(ticker: str) -> str:
+    normalized = str(ticker or "").strip().upper()
+    code = normalized.split(".", 1)[0]
+    exchange = normalized.split(".", 1)[1] if "." in normalized else ""
+    prefix = "sh" if exchange == "SH" or (not exchange and code.startswith(("5", "6", "9"))) else "sz"
+    return f"{prefix}{code}"
+
+
+def _fetch_cn_daily_bars(ticker: str, limit: int = 50) -> tuple[list[dict], str]:
+    quote_symbol = _cn_quote_symbol(ticker)
+    source_url = f"{CN_AI_RANKING_SOURCE_URL}?param={quote_symbol},day,,,{limit},qfq"
+    request = Request(
+        source_url,
+        headers={
+            "Accept": "application/json,text/plain,*/*",
+            "Referer": "https://gu.qq.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124 Safari/537.36",
+        },
+    )
+    last_error: Exception | None = None
+    for attempt in range(2):
+        try:
+            with urlopen(request, timeout=CN_AI_RANKING_TIMEOUT) as response:
+                payload = json.loads(response.read().decode("utf-8-sig"))
+            quote_payload = (payload.get("data") or {}).get(quote_symbol) or {}
+            rows = quote_payload.get("qfqday") or quote_payload.get("day") or []
+            bars: list[dict] = []
+            for row in rows:
+                if not isinstance(row, list) or len(row) < 5:
+                    continue
+                day = str(row[0] or "").strip()
+                values = [_safe_float(value) for value in row[1:5]]
+                if not day or any(value is None for value in values):
+                    continue
+                open_price, close_price, high_price, low_price = values
+                bars.append(
+                    {
+                        "date": day,
+                        "open": float(open_price),
+                        "close": float(close_price),
+                        "high": float(high_price),
+                        "low": float(low_price),
+                    }
+                )
+            bars.sort(key=lambda item: item["date"])
+            if not bars:
+                raise ValueError(f"行情源未返回 {ticker} 的有效日线。")
+            return bars, source_url
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError) as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.15)
+    raise RuntimeError(f"读取 {ticker} 前复权日线失败：{last_error}") from last_error
+
+
+def _cn_completed_target_date(benchmark_bars: list[dict]) -> str:
+    now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
+    today = now_cn.date().isoformat()
+    before_close = (now_cn.hour, now_cn.minute) < (15, 30)
+    completed = [
+        bar["date"]
+        for bar in benchmark_bars
+        if bar["date"] < today or (bar["date"] == today and not before_close)
+    ]
+    if not completed:
+        raise ValueError("基准指数没有已完成交易日数据。")
+    return completed[-1]
+
+
+def _cn_ma_metric(bars: list[dict], target_date: str) -> dict | None:
+    selected = [bar for bar in bars if bar["date"] <= target_date]
+    minimum = max(CN_AI_RANKING_WINDOW * 2 - 1, CN_AI_RANKING_ATR_WINDOW + 1)
+    if len(selected) < minimum:
+        return None
+
+    closes = [float(bar["close"]) for bar in selected]
+    moving_averages = [
+        sum(closes[index - CN_AI_RANKING_WINDOW + 1 : index + 1]) / CN_AI_RANKING_WINDOW
+        for index in range(CN_AI_RANKING_WINDOW - 1, len(closes))
+    ]
+    if len(moving_averages) < CN_AI_RANKING_WINDOW:
+        return None
+    latest_ma = moving_averages[-1]
+    ma_center = sum(moving_averages[-CN_AI_RANKING_WINDOW:]) / CN_AI_RANKING_WINDOW
+
+    true_ranges: list[float] = []
+    for index in range(1, len(selected)):
+        bar = selected[index]
+        previous_close = float(selected[index - 1]["close"])
+        true_ranges.append(
+            max(
+                float(bar["high"]) - float(bar["low"]),
+                abs(float(bar["high"]) - previous_close),
+                abs(float(bar["low"]) - previous_close),
+            )
+        )
+    if len(true_ranges) < CN_AI_RANKING_ATR_WINDOW:
+        return None
+    atr = sum(true_ranges[-CN_AI_RANKING_ATR_WINDOW:]) / CN_AI_RANKING_ATR_WINDOW
+    if not np.isfinite(atr) or atr <= 0 or not np.isfinite(ma_center) or ma_center <= 0:
+        return None
+
+    close = closes[-1]
+    price_change_3d = None
+    if len(closes) >= 4 and closes[-4] > 0:
+        price_change_3d = (close / closes[-4] - 1.0) * 100.0
+    return {
+        "date": selected[-1]["date"],
+        "close": round(close, 4),
+        "latest_ma": round(latest_ma, 4),
+        "ma_center": round(ma_center, 4),
+        "atr": round(atr, 6),
+        "atr_score": (close - ma_center) / atr,
+        "price_vs_center_pct": (close / ma_center - 1.0) * 100.0,
+        "price_change_3d_pct": price_change_3d,
+    }
+
+
+def _cn_rank_rows(
+    tickers: list[str],
+    bars_by_ticker: dict[str, list[dict]],
+    target_date: str,
+    benchmark_score: float,
+) -> tuple[list[dict], list[dict]]:
+    rows: list[dict] = []
+    skipped: list[dict] = []
+    for ticker in tickers:
+        metric = _cn_ma_metric(bars_by_ticker.get(ticker) or [], target_date)
+        if not metric:
+            skipped.append({"ticker": ticker, "reason": "有效日线不足，无法计算均线重心或ATR20。"})
+            continue
+        rows.append(
+            {
+                "ticker": ticker,
+                "code": ticker.split(".", 1)[0],
+                **metric,
+                "benchmark_score": benchmark_score,
+                "excess_atr_vs_benchmark": metric["atr_score"] - benchmark_score,
+            }
+        )
+    rows.sort(
+        key=lambda item: (
+            item["excess_atr_vs_benchmark"],
+            item["price_vs_center_pct"],
+            item["ticker"],
+        ),
+        reverse=True,
+    )
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows, skipped
+
+
+def _cn_rank_unavailable(message: str) -> dict:
+    return {
+        "available": False,
+        "market": "cn",
+        "benchmark": CN_AI_RANKING_BENCHMARK.split(".", 1)[0],
+        "benchmark_name": "中证500",
+        "window": CN_AI_RANKING_WINDOW,
+        "atr_window": CN_AI_RANKING_ATR_WINDOW,
+        "error": message,
+        "stocks": [],
+        "rankByTicker": {},
+    }
+
+
+def _read_cn_ai_rank_snapshot() -> dict | None:
+    if not CN_AI_RANKING_SNAPSHOT.exists():
+        return None
+    try:
+        payload = json.loads(CN_AI_RANKING_SNAPSHOT.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) and payload.get("available") else None
+
+
+def _write_cn_ai_rank_snapshot(payload: dict) -> None:
+    if not payload.get("available"):
+        return
+    CN_AI_RANKING_SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)
+    temporary = CN_AI_RANKING_SNAPSHOT.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    temporary.replace(CN_AI_RANKING_SNAPSHOT)
+
+
+def _build_cn_ai_ma_ranking(force: bool = False) -> dict:
+    now = time.time()
+    cached = _CN_AI_RANK_CACHE.get("payload")
+    fetched_at = float(_CN_AI_RANK_CACHE.get("fetched_at") or 0)
+    if not force and isinstance(cached, dict) and now - fetched_at < CN_AI_RANKING_CACHE_SECONDS:
+        return cached
+
+    with _CN_AI_RANK_LOCK:
+        cached = _CN_AI_RANK_CACHE.get("payload")
+        fetched_at = float(_CN_AI_RANK_CACHE.get("fetched_at") or 0)
+        if not force and isinstance(cached, dict) and now - fetched_at < CN_AI_RANKING_CACHE_SECONDS:
+            return cached
+        try:
+            tickers = _load_cn_ai_tickers()
+            benchmark_bars, benchmark_source_url = _fetch_cn_daily_bars(CN_AI_RANKING_BENCHMARK)
+            as_of_date = _cn_completed_target_date(benchmark_bars)
+            benchmark_dates = [bar["date"] for bar in benchmark_bars if bar["date"] <= as_of_date]
+            if len(benchmark_dates) < 2:
+                raise ValueError("中证500基准交易日不足。")
+            previous_date = benchmark_dates[-2]
+            benchmark_metric = _cn_ma_metric(benchmark_bars, as_of_date)
+            previous_benchmark_metric = _cn_ma_metric(benchmark_bars, previous_date)
+            if not benchmark_metric or not previous_benchmark_metric:
+                raise ValueError("中证500均线重心或ATR20计算失败。")
+
+            bars_by_ticker: dict[str, list[dict]] = {}
+            errors: list[dict] = []
+            with ThreadPoolExecutor(max_workers=max(1, min(CN_AI_RANKING_WORKERS, 16))) as executor:
+                futures = {executor.submit(_fetch_cn_daily_bars, ticker): ticker for ticker in tickers}
+                for future in as_completed(futures):
+                    ticker = futures[future]
+                    try:
+                        bars_by_ticker[ticker] = future.result()[0]
+                    except Exception as exc:  # pragma: no cover - per-stock network boundary.
+                        errors.append({"ticker": ticker, "reason": str(exc)})
+
+            rows, skipped = _cn_rank_rows(
+                tickers,
+                bars_by_ticker,
+                as_of_date,
+                float(benchmark_metric["atr_score"]),
+            )
+            previous_rows, _ = _cn_rank_rows(
+                tickers,
+                bars_by_ticker,
+                previous_date,
+                float(previous_benchmark_metric["atr_score"]),
+            )
+            previous_rank = {row["ticker"]: row["rank"] for row in previous_rows}
+            for row in rows:
+                prior = previous_rank.get(row["ticker"])
+                row["previous_rank_1"] = prior
+                row["rank_change"] = prior - row["rank"] if prior is not None else None
+                row["stale_sessions"] = sum(
+                    1 for trading_day in benchmark_dates if row["date"] < trading_day <= as_of_date
+                )
+                for field in (
+                    "atr_score",
+                    "benchmark_score",
+                    "excess_atr_vs_benchmark",
+                    "price_vs_center_pct",
+                    "price_change_3d_pct",
+                ):
+                    if row.get(field) is not None:
+                        row[field] = round(float(row[field]), 4)
+
+            rank_by_ticker: dict[str, dict] = {}
+            for row in rows:
+                rank_by_ticker[row["ticker"]] = row
+                rank_by_ticker[row["code"]] = row
+            result = {
+                "available": bool(rows),
+                "market": "cn",
+                "as_of_date": as_of_date,
+                "previous_date": previous_date,
+                "benchmark": CN_AI_RANKING_BENCHMARK.split(".", 1)[0],
+                "benchmark_name": "中证500",
+                "benchmark_score": round(float(benchmark_metric["atr_score"]), 4),
+                "window": CN_AI_RANKING_WINDOW,
+                "atr_window": CN_AI_RANKING_ATR_WINDOW,
+                "universe_count": len(tickers),
+                "stock_count": len(rows),
+                "coverage_count": len(rows),
+                "source_name": "腾讯财经前复权日线",
+                "source_url": "https://gu.qq.com/sh000905/gp",
+                "api_source_url": benchmark_source_url,
+                "method": (
+                    "均线重心为最近10个MA10的平均值；ATR20为最近20个交易日真实波幅均值；"
+                    "个股ATR强度=(收盘价-均线重心)/ATR20，超额ATR强度=个股ATR强度-中证500同口径强度。"
+                    "股票按超额ATR强度从高到低排名，产业链节点按节点内股票平均名次从低到高排序。"
+                ),
+                "stocks": rows,
+                "rankByTicker": rank_by_ticker,
+                "skipped": skipped + errors,
+            }
+            if not rows:
+                result = _cn_rank_unavailable("行情源未返回可计算的A股产业链股票。")
+        except Exception as exc:
+            if isinstance(cached, dict) and cached.get("available"):
+                result = dict(cached)
+                result["stale"] = True
+                result["warning"] = f"A股均线重心本次刷新失败，暂时沿用上一份缓存：{exc}"
+            else:
+                result = _cn_rank_unavailable(f"A股均线重心排名暂时无法生成：{exc}")
+
+        _CN_AI_RANK_CACHE["payload"] = result
+        _CN_AI_RANK_CACHE["fetched_at"] = now
+        if result.get("available") and not result.get("stale"):
+            try:
+                _write_cn_ai_rank_snapshot(result)
+            except OSError:
+                pass
+        return result
+
+
+def _refresh_cn_ai_rank_in_background() -> None:
+    with _CN_AI_RANK_REFRESH_LOCK:
+        if _CN_AI_RANK_REFRESH_STATE.get("running"):
+            return
+        _CN_AI_RANK_REFRESH_STATE["running"] = True
+        _CN_AI_RANK_REFRESH_STATE["last_error"] = None
+
+    def worker() -> None:
+        try:
+            _build_cn_ai_ma_ranking(force=True)
+        except Exception as exc:  # pragma: no cover - defensive background boundary.
+            _CN_AI_RANK_REFRESH_STATE["last_error"] = str(exc)
+        finally:
+            _CN_AI_RANK_REFRESH_STATE["running"] = False
+
+    threading.Thread(target=worker, name="cn-ai-ma-rank-refresh", daemon=True).start()
+
+
+def _cn_ai_ma_ranking_payload() -> dict:
+    now = time.time()
+    cached = _CN_AI_RANK_CACHE.get("payload")
+    fetched_at = float(_CN_AI_RANK_CACHE.get("fetched_at") or 0)
+    if not isinstance(cached, dict) or not cached.get("available"):
+        snapshot = _read_cn_ai_rank_snapshot()
+        if snapshot:
+            cached = snapshot
+            fetched_at = 0.0
+            _CN_AI_RANK_CACHE["payload"] = snapshot
+            _CN_AI_RANK_CACHE["fetched_at"] = fetched_at
+    if isinstance(cached, dict) and cached.get("available"):
+        if now - fetched_at >= CN_AI_RANKING_CACHE_SECONDS:
+            _refresh_cn_ai_rank_in_background()
+        payload = dict(cached)
+        payload["refreshing"] = bool(_CN_AI_RANK_REFRESH_STATE.get("running"))
+        if _CN_AI_RANK_REFRESH_STATE.get("last_error"):
+            payload["warning"] = f"后台刷新暂未完成：{_CN_AI_RANK_REFRESH_STATE['last_error']}"
+        return payload
+    return _build_cn_ai_ma_ranking(force=True)
+
+
 def _first_existing(data_dir: Path, names: list[str]) -> Path | None:
     for name in names:
         path = data_dir / name
@@ -1551,6 +1924,8 @@ def app(environ, start_response):
             return _json_response(start_response, {"error": str(exc)}, "500 Internal Server Error")
     if method == "GET" and path == "/api/us-rank-heat":
         return _json_response(start_response, _build_rank_heat_summary())
+    if method == "GET" and path == "/api/cn-ai-ma-rank":
+        return _json_response(start_response, _cn_ai_ma_ranking_payload())
     if method == "GET" and path == "/api/news":
         return _json_response(start_response, _build_news_payload())
     if method == "POST" and path == "/api/fund-flow-refresh":

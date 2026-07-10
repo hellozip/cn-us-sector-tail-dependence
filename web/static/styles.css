@@ -848,6 +848,140 @@ body.modal-open {
   line-height: 1.35;
 }
 
+.chain-stock-rank-panel {
+  border-top: 1px solid var(--line);
+  background: #ffffff;
+}
+
+.chain-stock-rank-panel[hidden] {
+  display: none;
+}
+
+.chain-stock-rank-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  background: #f8fafc;
+}
+
+.chain-stock-rank-heading h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.chain-stock-rank-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.chain-stock-rank-count {
+  flex: 0 0 auto;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  padding: 5px 9px;
+  color: #047857;
+  background: #ecfdf5;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.chain-stock-rank-table-wrap {
+  max-height: 520px;
+  overflow: auto;
+  border-top: 1px solid var(--line);
+}
+
+.chain-stock-rank-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.chain-stock-rank-table th,
+.chain-stock-rank-table td {
+  border-bottom: 1px solid #edf0f4;
+  padding: 9px 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.chain-stock-rank-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  color: #475569;
+  background: #f8fafc;
+  font-weight: 900;
+}
+
+.chain-stock-rank-table th:nth-child(2),
+.chain-stock-rank-table td:nth-child(2),
+.chain-stock-rank-table th:last-child,
+.chain-stock-rank-table td:last-child {
+  text-align: left;
+}
+
+.chain-stock-rank-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.stock-rank-number {
+  color: #475569;
+}
+
+.stock-rank-number.top {
+  color: #b91c1c;
+}
+
+.stock-rank-name {
+  display: grid;
+  gap: 2px;
+}
+
+.stock-rank-name strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.stock-rank-name span,
+.rank-date {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.rank-date.stale {
+  color: #b45309;
+}
+
+.rank-positive,
+.rank-move.up {
+  color: #b91c1c;
+  font-weight: 900;
+}
+
+.rank-negative,
+.rank-move.down {
+  color: #047857;
+  font-weight: 900;
+}
+
+.rank-move.flat,
+.rank-move.new {
+  color: #64748b;
+  font-weight: 900;
+}
+
+.rank-table-empty {
+  padding: 24px !important;
+  color: var(--muted);
+  text-align: center !important;
+}
+
 .legend-upstream {
   background: #0f766e;
 }
@@ -1622,6 +1756,14 @@ body.modal-open {
 
   .chain-rank-heading {
     display: grid;
+  }
+
+  .chain-stock-rank-heading {
+    display: grid;
+  }
+
+  .chain-stock-rank-count {
+    width: fit-content;
   }
 
   .chain-legend {

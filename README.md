@@ -193,9 +193,13 @@ http://127.0.0.1:8000
 看板接口：
 
 - `GET /api/dashboard`: 读取当前 `outputs/latest/`，如果没有本地输出则回退到 `reports/` 中最新快照。
+- `GET /api/us-rank-heat`: 读取美股外部排名源，生成 AI 产业链节点热度。
+- `GET /api/cn-ai-ma-rank`: 对 AI 产业链中的 68 只 A 股生成均线重心排名，并返回上一交易日名次变化。
 - `POST /api/fund-flow-refresh`: 只运行 `scripts/fetch_real_fund_flows.py`，按真实资金流来源更新 `fund_flow_amount.csv`、`sector_total_size.csv`、`fund_flow_sources.csv` 和美国 ETF 快照。
 - `POST /api/refresh`: 按页面上的起止日期和 tail alpha 重新抓取数据、估计 GARCH，并刷新 `outputs/latest/`。
 - `GET /report-assets/report.html`: 打开脚本生成的完整 HTML 报告。
+
+AI 产业链页面位于 `/ai-chain`。A 股排名使用腾讯财经前复权日线，计算口径与美股均线重心榜一致：`MA重心 = 最近10个MA10的平均值`，`ATR强度 = (收盘价 - MA重心) / ATR20`，`超额ATR强度 = 个股ATR强度 - 中证500 ATR强度`。68 只股票按超额 ATR 强度降序排列，产业链节点按节点内股票平均名次升序排列。项目携带最近一次完整排名快照，冷启动先返回快照，再在后台刷新最新已完成交易日数据，避免 Render 首次访问被行情请求阻塞。
 
 Render 部署：
 
